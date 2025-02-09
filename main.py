@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Response
 import subprocess
 import os
 import json
@@ -11,75 +11,201 @@ import markdown2
 from bs4 import BeautifulSoup
 from openai import OpenAI
 from PIL import Image
+from fastapi.middleware.cors import CORSMiddleware
+import httpx
+import os
+from typing import Dict, Any
 
 app = FastAPI()
 
-DATA_DIR = "/data"
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Allows all origins
+    allow_credentials=True,
+    allow_methods=["*"],  # Allows all methods
+    allow_headers=["*"],  # Allows all headers
+)
+
+# Don't worry about root path
+# ROOT_DIR: str = app.root_path or '.'
+# DATA_DIR: str = f"{ROOT_DIR}/data"
+#
+# if not os.path.exists(DATA_DIR):
+#     os.makedirs(DATA_DIR)
+
+# AI Proxy
+AI_URL: str = "https://api.openai.com/v1"
+AIPROXY_TOKEN: Optional[str] = os.environ.get("AIPROXY_TOKEN")
+AI_MODEL: str = "gpt-4o-mini"
+
+# for debugging use LLM token
+if not AIPROXY_TOKEN:
+    AI_URL = "https://llmfoundry.straive.com/openai/v1"
+    AIPROXY_TOKEN = os.environ.get("LLM_TOKEN")
+
+if not AIPROXY_TOKEN:
+    raise KeyError("AIPROXY_TOKEN environment variables is missing")
 
 
+# POST `/run?task=<task description>`` Executes a plain‑English task.
+# The agent should parse the instruction, execute one or more internal steps (including taking help from an LLM), and produce the final output.
+# - If successful, return a HTTP 200 OK response
+# - If unsuccessful because of an error in the task, return a HTTP 400 Bad Request response
+# - If unsuccessful because of an error in the agent, return a HTTP 500 Internal Server Error response
+# - The body may optionally contain any useful information in each of these cases
 @app.post("/run")
 def run_task(task: str):
+    if not task:
+        raise HTTPException(status_code=400, detail="Task description is required")
+
     try:
-        if "install uv" in task:
-            return install_uv(task)
-
-        elif "format" in task:
-            return format_markdown(task)
-
-        elif "count Wednesdays" in task:
-            return count_wednesdays(task)
-
-        elif "sort contacts" in task:
-            return sort_contacts(task)
-
-        elif "first line of logs" in task:
-            return extract_recent_logs(task)
-
-        elif "extract markdown titles" in task:
-            return extract_markdown_titles(task)
-
-        elif "extract email" in task:
-            return extract_email_sender(task)
-
-        elif "extract credit card" in task:
-            return extract_credit_card(task)
-
-        elif "find similar comments" in task:
-            return find_similar_comments(task)
-
-        elif "calculate ticket sales" in task:
-            return calculate_ticket_sales(task)
-
-        else:
-            return {"message": "Unknown task", "status": "error"}, 400
+        tool = get_task_tool(task, task_tools)
+        return execute_tool_calls(tool)
 
     except Exception as e:
-        return {"message": str(e), "status": "agent error"}, 500
+        detail: str = e.detail if hasattr(e, "detail") else str(e)
+
+        raise HTTPException(status_code=500, detail=detail)
 
 
-# A1
-def install_uv(task):
-    os.system(
-        "uv venv venv && source venv/bin/activate && uv pip install -r requirements.txt"
+def execute_tool_calls(tool: Dict[str, Any]) -> Any:
+    if "tool_calls" in tool:
+        for tool_call in tool["tool_calls"]:
+            function_name = tool_call["function"].get("name")
+            function_args = tool_call["function"].get("arguments")
+
+            # Ensure the function name is valid and callable
+            if function_name in globals() and callable(globals()[function_name]):
+                function_chosen = globals()[function_name]
+                function_args = parse_function_args(function_args)
+
+                if isinstance(function_args, dict):
+                    return function_chosen(**function_args)
+
+    raise HTTPException(status_code=400, detail="Unknown task")
+
+
+def parse_function_args(function_args: Optional[Any]) -> Dict[str, Any]:
+    if function_args is not None:
+        if isinstance(function_args, str):
+            function_args = json.loads(function_args)
+
+        elif not isinstance(function_args, dict):
+            function_args = {"args": function_args}
+    else:
+        function_args = {}
+
+    return function_args
+
+
+# GET `/read?path=<file path>` Returns the content of the specified file.
+# This is critical for verification of the exact output.
+# - If successful, return a HTTP 200 OK response with the file content as plain text
+# - If the file does not exist, return a HTTP 404 Not Found response and an empty body
+@app.get("/read")
+def read_file(path: str) -> Response:
+    if not path:
+        raise HTTPException(status_code=400, detail="File path is required")
+
+    if not os.path.exists(path):
+        raise HTTPException(status_code=404, detail="File not found")
+
+    try:
+        with open(path, "r") as f:
+            content = f.read()
+        return Response(content=content, media_type="text/plain")
+
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="File not found")
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
+
+
+# Task implementations
+task_tools = [
+    {
+        "type": "function",
+        "function": {
+            "name": "format_file",
+            "description": "Format a file using prettier",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "file_path": {
+                        "type": "string",
+                        "description": "File path to format",
+                    }
+                },
+                "required": ["file_path"],
+                "additionalProperties": False,
+            },
+            "strict": True,
+        },
+    }
+]
+
+
+def get_task_tool(task: str, tools: list[Dict[str, Any]]) -> Dict[str, Any]:
+    response = httpx.post(
+        f"{AI_URL}/chat/completions",
+        headers={
+            "Authorization": f"Bearer {AIPROXY_TOKEN}",
+            "Content-Type": "application/json",
+        },
+        json={
+            "model": AI_MODEL,
+            "messages": [{"role": "user", "content": task}],
+            "tools": tools,
+            "tool_choice": "auto",
+        },
     )
-    subprocess.run(["python", "datagen.py", os.getenv("USER_EMAIL")])
-    return {"message": "uv installed and datagen.py executed", "status": "success"}
+
+    return response.json()["choices"][0]["message"]
 
 
-def format_markdown(task):
-    raise NotImplementedError
+# Format a file using prettier
+def format_file(file_path: str) -> dict:
+    if not file_path:
+        raise HTTPException(status_code=400, detail="File path is required")
+
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="File not found")
+
+    try:
+        result = subprocess.run(
+            ["prettier", "--write", file_path],
+            shell=True,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+
+        if result.stderr:
+            raise HTTPException(status_code=500, detail=result.stderr)
+
+        return {"message": "File formatted", "status": "success"}
+
+    except subprocess.CalledProcessError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 def extract_recent_logs(task):
     raise NotImplementedError
 
+
 def extract_markdown_titles(task):
     raise NotImplementedError
+
 
 def extract_credit_card(task):
     raise NotImplementedError
 
+
 def find_similar_comments(task):
     raise NotImplementedError
+
 
 # A3
 def count_wednesdays(task):
@@ -165,17 +291,3 @@ def calculate_ticket_sales(task):
         "total_sales": total_sales,
         "status": "success",
     }
-
-
-# B1 & B2
-@app.get("/read")
-def read_file(path: str):
-    if not path.startswith(DATA_DIR):
-        raise HTTPException(status_code=403, detail="Access denied")
-
-    try:
-        with open(path, "r") as f:
-            return f.read()
-
-    except FileNotFoundError:
-        raise HTTPException(status_code=404, detail="File not found")
