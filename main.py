@@ -18,6 +18,11 @@ from typing import Dict, Any
 from dateutil import parser
 import sys
 import logging
+import re
+import base64
+from PIL import Image
+from io import BytesIO
+import easyocr
 
 app = FastAPI()
 
@@ -43,7 +48,7 @@ DEV_EMAIL: str = "hariharan.chandran@straive.com"
 
 # AI Proxy
 AI_URL: str = "https://api.openai.com/v1"
-AIPROXY_TOKEN: Optional[str] = os.environ.get("AIPROXY_TOKEN")
+AIPROXY_TOKEN: str = os.environ.get("AIPROXY_TOKEN")
 AI_MODEL: str = "gpt-4o-mini"
 
 # for debugging use LLM token
@@ -140,12 +145,12 @@ task_tools = [
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "file_path": {
+                    "source": {
                         "type": "string",
                         "description": "File path to format",
                     }
                 },
-                "required": ["file_path"],
+                "required": ["source"],
                 "additionalProperties": False,
             },
             "strict": True,
@@ -159,10 +164,13 @@ task_tools = [
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "weekday": {"type": "string", "description": "Day of the week"},
+                    "weekday": {
+                        "type": "string",
+                        "description": "Day of the week (in English)",
+                    },
                     "source": {
                         "type": "string",
-                        "description": "Path to the source file (optional)",
+                        "description": "Path to the source file",
                         "nullable": True,
                     },
                 },
@@ -176,7 +184,7 @@ task_tools = [
         "type": "function",
         "function": {
             "name": "sort_contacts",
-            "description": "Sort an array of contacts by first or last name, in the file `/data/contacts.json` to `/data/contacts-sorted.json`",
+            "description": "Sort an array of contacts by first or last name, in the file `/data/contacts.json`",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -188,16 +196,95 @@ task_tools = [
                     },
                     "source": {
                         "type": "string",
-                        "description": "Path to the source file (optional)",
-                        "nullable": True,
-                    },
-                    "destination": {
-                        "type": "string",
-                        "description": "Path to the destination file (optional)",
+                        "description": "Path to the source file",
                         "nullable": True,
                     },
                 },
-                "required": ["order", "source", "destination"],
+                "required": ["order", "source"],
+                "additionalProperties": False,
+            },
+            "strict": True,
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "write_recent_logs",
+            "description": "Write the first line of the **10** most recent `.log` files in `/data/logs/`, most recent first",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "count": {
+                        "type": "integer",
+                        "description": "Number of records to be listed",
+                    },
+                    "source": {
+                        "type": "string",
+                        "description": "Path to the directory containing log files",
+                        "nullable": True,
+                    },
+                },
+                "required": ["count", "source"],
+                "additionalProperties": False,
+            },
+            "strict": True,
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "extract_markdown_titles",
+            "description": "Index Markdown (.md) files in `/data/docs/` and extract their titles",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "source": {
+                        "type": "string",
+                        "description": "Path to the directory containing Markdown files",
+                        "nullable": True,
+                    },
+                },
+                "required": ["source"],
+                "additionalProperties": False,
+            },
+            "strict": True,
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "extract_email_sender",
+            "description": "Extract the **sender's** email address from an email message from `/data/email.txt`",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "source": {
+                        "type": "string",
+                        "description": "Path to the source file containing the email message",
+                        "nullable": True,
+                    },
+                },
+                "required": ["source"],
+                "additionalProperties": False,
+            },
+            "strict": True,
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "extract_credit_card_number",
+            "description": "Extract the 16 digit code from the image `/data/credit_card.png`",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "source": {
+                        "type": "string",
+                        "description": "Path to the source image file containing the credit card",
+                        "nullable": True,
+                    }
+                },
+                "required": ["source"],
                 "additionalProperties": False,
             },
             "strict": True,
@@ -227,6 +314,31 @@ def get_task_tool(task: str, tools: list[Dict[str, Any]]) -> Dict[str, Any]:
         raise HTTPException(status_code=500, detail=json_response["error"]["message"])
 
     return json_response["choices"][0]["message"]
+
+
+def get_chat_completions(messages: list[Dict[str, Any]]) -> Dict[str, Any]:
+    response = httpx.post(
+        f"{AI_URL}/chat/completions",
+        headers={
+            "Authorization": f"Bearer {AIPROXY_TOKEN}",
+            "Content-Type": "application/json",
+        },
+        json={
+            "model": AI_MODEL,
+            "messages": messages,
+        },
+    )
+
+    json_response = response.json()
+
+    if "error" in json_response:
+        raise HTTPException(status_code=500, detail=json_response["error"]["message"])
+
+    return json_response["choices"][0]["message"]
+
+
+def file_rename(name: str, suffix: str) -> str:
+    return (re.sub(r"\.(\w+)$", "", name) + suffix).lower()
 
 
 # A1. Data initialization
@@ -282,9 +394,8 @@ def initialize_data():
 
 
 # A2. Format a file using prettier
-def format_file(file_path: str) -> dict:
-    if not file_path:
-        raise HTTPException(status_code=400, detail="File path is required")
+def format_file(source: str) -> dict:
+    file_path = source or os.path.join(DATA_DIR, "format.md")
 
     if not os.path.exists(file_path):
         raise HTTPException(status_code=404, detail="File not found")
@@ -319,12 +430,12 @@ day_names = [
 ]
 
 
-def count_weekday(weekday: str, source: Optional[str] = None) -> dict:
+def count_weekday(weekday: str, source: str = None) -> dict:
     weekday = normalize_weekday(weekday)
     weekday_index = day_names.index(weekday)
 
     file_path: str = source or os.path.join(DATA_DIR, "dates.txt")
-    output_path: str = os.path.join(DATA_DIR, f"dates-{weekday}.txt".lower())
+    output_path: str = file_rename(file_path, f"-{weekday}.txt")
 
     if not os.path.exists(file_path):
         raise HTTPException(status_code=404, detail="File not found")
@@ -365,13 +476,10 @@ def normalize_weekday(weekday):
 
 
 # A4. Sort the array of contacts by last name and first name
-def sort_contacts(
-    order: str = "last_name",
-    source: Optional[str] = None,
-    destination: Optional[str] = None,
-) -> dict:
+def sort_contacts(order: str, source: str) -> dict:
+    order = order or "last_name"
     file_path = source or os.path.join(DATA_DIR, "contacts.json")
-    output_path = destination or os.path.join(DATA_DIR, "contacts-sorted.json")
+    output_path = file_rename(file_path, "-sorted.json")
 
     if not os.path.exists(file_path):
         raise HTTPException(status_code=404, detail="File not found")
@@ -395,45 +503,180 @@ def sort_contacts(
     }
 
 
-def extract_recent_logs(task):
-    raise NotImplementedError
+# A5. Write the first line of the 10 most recent .log file in /data/logs/ to /data/logs-recent.txt, most recent first
+def write_recent_logs(count: int, source: str):
+    file_path: str = source or os.path.join(DATA_DIR, "logs")
+    file_dir_name: str = os.path.dirname(file_path)
+    output_path: str = os.path.join(DATA_DIR, f"{file_dir_name}-recent.txt")
+
+    if count < 1:
+        raise HTTPException(status_code=400, detail="Invalid count")
+
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="File not found")
+
+    log_files = sorted(
+        [
+            os.path.join(file_path, f)
+            for f in os.listdir(file_path)
+            if f.endswith(".log")
+        ],
+        key=os.path.getmtime,
+        reverse=True,
+    )
+
+    with open(output_path, "w") as out:
+        for log_file in log_files[:count]:
+            with open(log_file, "r") as f:
+                first_line = f.readline().strip()
+                out.write(f"{first_line}\n")
+
+    return {
+        "message": "Recent logs written",
+        "log_dir": file_path,
+        "output_file": output_path,
+        "status": "success",
+    }
 
 
-def extract_markdown_titles(task):
-    raise NotImplementedError
+# A6. Index for Markdown (.md) files in /data/docs/
+def extract_markdown_titles(source: str):
+    file_path = source or os.path.join(DATA_DIR, "docs")
+    output_path = os.path.join(file_path, "index.json")
+
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="Directory not found")
+
+    index = {}
+    collect_markdown_titles(file_path, index)
+
+    with open(output_path, "w") as f:
+        json.dump(index, f, indent=4)
+
+    return {
+        "message": "Markdown titles extracted",
+        "file_dir": file_path,
+        "index_file": output_path,
+        "status": "success",
+    }
 
 
-def extract_credit_card(task):
-    raise NotImplementedError
+def collect_markdown_titles(directory: str, index: dict):
+    for root, _, files in os.walk(directory):
+        for file in files:
+            if file.endswith(".md"):
+                file_path = os.path.join(root, file)
+                with open(file_path, "r") as f:
+                    title = None
+                    for line in f:
+                        if line.startswith("# "):
+                            title = line[2:].strip()
+                            break
+
+                    if title:
+                        relative_path = os.path.relpath(file_path, directory)
+                        relative_path = re.sub(r"[\\/]+", "/", relative_path)
+                        index[relative_path] = title
 
 
-def find_similar_comments(task):
-    raise NotImplementedError
+# A7. Extract the sender's email address from an email message
+def extract_email_sender(source: str):
+    file_path = source or os.path.join(DATA_DIR, "email.txt")
+    output_path = file_rename(file_path, "-sender.txt")
 
-
-# A7
-def extract_email_sender(task):
-    file_path = os.path.join(DATA_DIR, "email.txt")
-    output_path = os.path.join(DATA_DIR, "email-sender.txt")
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="File not found")
 
     with open(file_path, "r") as f:
         email_content = f.read()
 
-    client = OpenAI(api_key="YOUR_API_KEY")
-    response = client.chat.completions.create(
-        model="gpt-4",
-        messages=[
+    response = get_chat_completions(
+        [
             {"role": "system", "content": "Extract the sender's email."},
             {"role": "user", "content": email_content},
-        ],
+        ]
     )
 
-    extracted_email = response.choices[0].message["content"].strip()
+    extracted_email = response["content"].strip()
 
     with open(output_path, "w") as f:
         f.write(extracted_email)
 
-    return {"message": "Email extracted", "email": extracted_email, "status": "success"}
+    return {
+        "message": "Email extracted",
+        "source": file_path,
+        "destination": output_path,
+        "status": "success",
+    }
+
+
+# A8. Extract credit card number.
+def encode_image(image_path: str, format: str):
+    image = Image.open(image_path)
+
+    buffer = BytesIO()
+    image.save(buffer, format=format)
+    image_bytes = buffer.getvalue()
+
+    base64_image = base64.b64encode(image_bytes).decode("utf-8")
+
+    return base64_image
+
+
+def extract_credit_card_number(source: str):
+    file_path = source or os.path.join(DATA_DIR, "credit_card.png")
+    output_path = file_rename(file_path, "-number.txt")
+
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="Image file not found")
+
+    # Taking more time
+    reader = easyocr.Reader(["en"])
+    results = reader.readtext(file_path, detail=0)
+
+    extracted_text = "\n".join(results)
+    extracted_text = re.sub(r"[- ]+", "", extracted_text)
+    matches = re.findall(
+        r"\b(?:4\d{12}(?:\d{3})?|5[1-5]\d{14}|3[47]\d{13}|6(?:011|5\d{2})\d{12}|3(?:0[0-5]|[68]\d)\d{11}|(?:2131|1800|35\d{3})\d{11})\b",
+        extracted_text,
+    )
+
+    extracted_number = (
+        matches[0] if (matches and len(matches) > 0) else "No credit card number found"
+    )
+
+    ## hard to install pytesseract
+    # image = Image.open(file_path)
+    # extracted_text = pytesseract.image_to_string(image)
+
+    ## below not working because of sensity data
+    # base64_image = encode_image(file_path, "PNG")
+    # image_url = f"data:image/png;base64,{base64_image}"
+    #
+    # response = get_chat_completions(
+    #     [
+    #         {
+    #             "role": "system",
+    #             "content": "Extract the credit card number from the image.",
+    #         },
+    #         {
+    #             "role": "user",
+    #             "content": [{"type": "image_url", "image_url": {"url": image_url}}],
+    #         },
+    #     ]
+    # )
+    #
+    # extracted_number = response["content"].strip()
+
+    with open(output_path, "w") as f:
+        f.write(extracted_number)
+
+    return {
+        "message": "Credit card number extracted",
+        "source": file_path,
+        "destination": output_path,
+        "status": "success",
+    }
 
 
 # A10

@@ -5,8 +5,9 @@ This project is a FastAPI application that provides various endpoints for handli
 ## Assumptions/Notes
 
 - The `AIPROXY_TOKEN` environment variable is required.
-- The `DATA_DIR` is configured to '/data'.
+- **A1:** The `DATA_DIR` is configured to '/data'. Assuming we need to download the data.
 - Monday is designated as the first day of the week.
+- **A8:** Unable to use LLM because of fllowing error: It looks like *OpenAI's* API is blocking the request due to sensitive content policies (likely because it detects a credit card number). OpenAI has strict rules against processing personally identifiable information (PII), including credit card numbers.
 
 ## Project Structure
 
