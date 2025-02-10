@@ -15,8 +15,14 @@ from fastapi.middleware.cors import CORSMiddleware
 import httpx
 import os
 from typing import Dict, Any
+from dateutil import parser
+import sys
+import logging
 
 app = FastAPI()
+
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
 
 # Add CORS middleware
 app.add_middleware(
@@ -27,12 +33,13 @@ app.add_middleware(
     allow_headers=["*"],  # Allows all headers
 )
 
-# Don't worry about root path
-# ROOT_DIR: str = app.root_path or '.'
-# DATA_DIR: str = f"{ROOT_DIR}/data"
-#
-# if not os.path.exists(DATA_DIR):
-#     os.makedirs(DATA_DIR)
+ROOT_DIR: str = app.root_path
+DATA_DIR: str = f"{ROOT_DIR}/data"
+
+if not os.path.exists(DATA_DIR):
+    os.makedirs(DATA_DIR)
+
+DEV_EMAIL: str = "hariharan.chandran@straive.com"
 
 # AI Proxy
 AI_URL: str = "https://api.openai.com/v1"
@@ -143,7 +150,59 @@ task_tools = [
             },
             "strict": True,
         },
-    }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "count_weekday",
+            "description": "Count the occurrences of a specific weekday in the file `/data/dates.txt`",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "weekday": {"type": "string", "description": "Day of the week"},
+                    "source": {
+                        "type": "string",
+                        "description": "Path to the source file (optional)",
+                        "nullable": True,
+                    },
+                },
+                "required": ["weekday", "source"],
+                "additionalProperties": False,
+            },
+            "strict": True,
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "sort_contacts",
+            "description": "Sort an array of contacts by first or last name, in the file `/data/contacts.json` to `/data/contacts-sorted.json`",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "order": {
+                        "type": "string",
+                        "description": "Sorting order, based on name",
+                        "enum": ["last_name", "first_name"],
+                        "default": "last_name",
+                    },
+                    "source": {
+                        "type": "string",
+                        "description": "Path to the source file (optional)",
+                        "nullable": True,
+                    },
+                    "destination": {
+                        "type": "string",
+                        "description": "Path to the destination file (optional)",
+                        "nullable": True,
+                    },
+                },
+                "required": ["order", "source", "destination"],
+                "additionalProperties": False,
+            },
+            "strict": True,
+        },
+    },
 ]
 
 
@@ -162,10 +221,67 @@ def get_task_tool(task: str, tools: list[Dict[str, Any]]) -> Dict[str, Any]:
         },
     )
 
-    return response.json()["choices"][0]["message"]
+    json_response = response.json()
+
+    if "error" in json_response:
+        raise HTTPException(status_code=500, detail=json_response["error"]["message"])
+
+    return json_response["choices"][0]["message"]
 
 
-# Format a file using prettier
+# A1. Data initialization
+def initialize_data():
+    logging.info(f"DATA - {DATA_DIR}")
+    logging.info(f"USER - {DEV_EMAIL}")
+
+    try:
+        # Ensure the 'uv' package is installed
+        try:
+            import uv
+
+        except ImportError:
+            logging.info("'uv' package not found. Installing...")
+
+            subprocess.check_call([sys.executable, "-m", "ensurepip", "--upgrade"])
+
+            subprocess.check_call(
+                [sys.executable, "-m", "pip", "install", "--upgrade", "uv"]
+            )
+
+            import uv
+
+        # Run the data generation script
+        result = subprocess.run(
+            [
+                "uv",
+                "run",
+                "https://raw.githubusercontent.com/sanand0/tools-in-data-science-public/tds-2025-01/project-1/datagen.py",
+                f"--root={DATA_DIR}",
+                DEV_EMAIL,
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+
+        if result.returncode == 0:
+            logging.info("Data initialization completed successfully.")
+
+        else:
+            logging.error(
+                f"Data initialization failed with return code {result.returncode}"
+            )
+            logging.error(f"Error output: {result.stderr}")
+
+    except subprocess.CalledProcessError as e:
+        logging.error(f"Subprocess error: {e}")
+        logging.error(f"Output: {e.output}")
+
+    except Exception as e:
+        logging.error(f"Error in initializing data: {e}")
+
+
+# A2. Format a file using prettier
 def format_file(file_path: str) -> dict:
     if not file_path:
         raise HTTPException(status_code=400, detail="File path is required")
@@ -185,10 +301,98 @@ def format_file(file_path: str) -> dict:
         if result.stderr:
             raise HTTPException(status_code=500, detail=result.stderr)
 
-        return {"message": "File formatted", "status": "success"}
+        return {"message": "File formatted", "source": file_path, "status": "success"}
 
     except subprocess.CalledProcessError as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# A3. Count the number of week-days in the list of dates
+day_names = [
+    "Monday",
+    "Tuesday",
+    "Wednesday",
+    "Thursday",
+    "Friday",
+    "Saturday",
+    "Sunday",
+]
+
+
+def count_weekday(weekday: str, source: Optional[str] = None) -> dict:
+    weekday = normalize_weekday(weekday)
+    weekday_index = day_names.index(weekday)
+
+    file_path: str = source or os.path.join(DATA_DIR, "dates.txt")
+    output_path: str = os.path.join(DATA_DIR, f"dates-{weekday}.txt".lower())
+
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="File not found")
+
+    with open(file_path, "r") as f:
+        dates = [parser.parse(line.strip()) for line in f if line.strip()]
+
+    day_count = sum(1 for d in dates if d.weekday() == weekday_index)
+
+    with open(output_path, "w") as f:
+        f.write(str(day_count))
+
+    return {
+        "message": f"{weekday} counted",
+        "count": day_count,
+        "source": file_path,
+        "destination": output_path,
+        "status": "success",
+    }
+
+
+def normalize_weekday(weekday):
+    if isinstance(weekday, int):  # If input is an integer (0-6)
+        return day_names[weekday % 7]
+
+    elif isinstance(weekday, str):  # If input is a string
+        weekday = weekday.strip().lower()
+        days = {day.lower(): day for day in day_names}
+        short_days = {day[:3].lower(): day for day in day_names}
+
+        if weekday in days:
+            return days[weekday]
+
+        elif weekday in short_days:
+            return short_days[weekday]
+
+    raise ValueError("Invalid weekday input")
+
+
+# A4. Sort the array of contacts by last name and first name
+def sort_contacts(
+    order: str = "last_name",
+    source: Optional[str] = None,
+    destination: Optional[str] = None,
+) -> dict:
+    file_path = source or os.path.join(DATA_DIR, "contacts.json")
+    output_path = destination or os.path.join(DATA_DIR, "contacts-sorted.json")
+
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="File not found")
+
+    with open(file_path, "r") as f:
+        contacts = json.load(f)
+
+    key1: str = "last_name" if order != "first_name" else "first_name"
+    key2: str = "last_name" if key1 == "first_name" else "first_name"
+
+    contacts.sort(key=lambda x: (x.get(key1, ""), x.get(key2, "")))
+
+    with open(output_path, "w") as f:
+        json.dump(contacts, f, indent=4)
+
+    return {
+        "message": "Contacts sorted",
+        "source": file_path,
+        "destination": output_path,
+        "status": "success",
+    }
 
 
 def extract_recent_logs(task):
@@ -205,44 +409,6 @@ def extract_credit_card(task):
 
 def find_similar_comments(task):
     raise NotImplementedError
-
-
-# A3
-def count_wednesdays(task):
-    file_path = os.path.join(DATA_DIR, "dates.txt")
-    output_path = os.path.join(DATA_DIR, "dates-wednesdays.txt")
-
-    with open(file_path, "r") as f:
-        dates = [
-            datetime.strptime(line.strip(), "%Y-%m-%d") for line in f if line.strip()
-        ]
-
-    wednesday_count = sum(1 for d in dates if d.weekday() == 2)
-
-    with open(output_path, "w") as f:
-        f.write(str(wednesday_count))
-
-    return {
-        "message": "Wednesdays counted",
-        "count": wednesday_count,
-        "status": "success",
-    }
-
-
-# A4
-def sort_contacts(task):
-    file_path = os.path.join(DATA_DIR, "contacts.json")
-    output_path = os.path.join(DATA_DIR, "contacts-sorted.json")
-
-    with open(file_path, "r") as f:
-        contacts = json.load(f)
-
-    contacts.sort(key=lambda x: (x.get("last_name", ""), x.get("first_name", "")))
-
-    with open(output_path, "w") as f:
-        json.dump(contacts, f, indent=4)
-
-    return {"message": "Contacts sorted", "status": "success"}
 
 
 # A7
@@ -291,3 +457,6 @@ def calculate_ticket_sales(task):
         "total_sales": total_sales,
         "status": "success",
     }
+
+
+initialize_data()
