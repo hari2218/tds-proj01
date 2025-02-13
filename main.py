@@ -23,6 +23,7 @@ import base64
 from PIL import Image
 from io import BytesIO
 import easyocr
+import numpy as np
 
 app = FastAPI()
 
@@ -50,6 +51,7 @@ DEV_EMAIL: str = "hariharan.chandran@straive.com"
 AI_URL: str = "https://api.openai.com/v1"
 AIPROXY_TOKEN: str = os.environ.get("AIPROXY_TOKEN")
 AI_MODEL: str = "gpt-4o-mini"
+AI_EMBEDDINGS_MODEL: str = "text-embedding-3-small"
 
 # for debugging use LLM token
 if not AIPROXY_TOKEN:
@@ -308,6 +310,8 @@ def get_task_tool(task: str, tools: list[Dict[str, Any]]) -> Dict[str, Any]:
         },
     )
 
+    response.raise_for_status()
+
     json_response = response.json()
 
     if "error" in json_response:
@@ -329,12 +333,37 @@ def get_chat_completions(messages: list[Dict[str, Any]]) -> Dict[str, Any]:
         },
     )
 
+    response.raise_for_status()
+    
     json_response = response.json()
 
     if "error" in json_response:
         raise HTTPException(status_code=500, detail=json_response["error"]["message"])
 
     return json_response["choices"][0]["message"]
+
+
+def get_embeddings(text: str) -> Dict[str, Any]:
+    response = httpx.post(
+        f"{AI_URL}/embeddings",
+        headers={
+            "Authorization": f"Bearer {AIPROXY_TOKEN}",
+            "Content-Type": "application/json",
+        },
+        json={
+            "model": AI_EMBEDDINGS_MODEL,
+            "text": text,
+        },
+    )
+
+    response.raise_for_status()
+
+    json_response = response.json()
+
+    if "error" in json_response:
+        raise HTTPException(status_code=500, detail=json_response["error"]["message"])
+
+    return json_response["choices"][0]["embedding"]
 
 
 def file_rename(name: str, suffix: str) -> str:
@@ -679,6 +708,45 @@ def extract_credit_card_number(source: str):
     }
 
 
+# A9. Simillar Comments
+def cosine_similarity(vec1, vec2):
+    return np.dot(vec1, vec2) / (np.linalg.norm(vec1) * np.linalg.norm(vec2))
+
+
+def similar_comments(source: str):
+    file_path = source or os.path.join(DATA_DIR, "comments.txt")
+    output_path = file_rename(file_path, "-similar.txt")
+
+    # Load comments
+    with open(file_path, "r", encoding="utf-8") as f:
+        comments = [line.strip() for line in f.readlines()]
+
+    # Compute embeddings
+    embeddings = [get_embeddings(comment) for comment in comments]
+
+    # Find the most similar pair
+    max_sim = -1
+    most_similar_pair = (None, None)
+
+    for i in range(len(comments)):
+        for j in range(i + 1, len(comments)):
+            sim = cosine_similarity(embeddings[i], embeddings[j])
+            if sim > max_sim:
+                max_sim = sim
+                most_similar_pair = (comments[i], comments[j])
+
+    # Write the most similar pair to output file
+    with open(output_path, "w", encoding="utf-8") as f:
+        f.write("\n".join(most_similar_pair))
+
+    return {
+        "message": "Similar comments extracted",
+        "source": file_path,
+        "destination": output_path,
+        "status": "success",
+    }
+
+
 # A10
 def calculate_ticket_sales(task):
     db_path = os.path.join(DATA_DIR, "ticket-sales.db")
@@ -702,4 +770,5 @@ def calculate_ticket_sales(task):
     }
 
 
-initialize_data()
+# Installion of data is done through Dockerfile
+# initialize_data()
