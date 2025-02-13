@@ -61,6 +61,7 @@ if not AIPROXY_TOKEN:
 if not AIPROXY_TOKEN:
     raise KeyError("AIPROXY_TOKEN environment variables is missing")
 
+APP_ID = "hari-tds2025-project1"
 
 # POST `/run?task=<task description>`` Executes a plain‑English task.
 # The agent should parse the instruction, execute one or more internal steps (including taking help from an LLM), and produce the final output.
@@ -149,20 +150,20 @@ task_tools = [
                 "properties": {
                     "source": {
                         "type": "string",
-                        "description": "File path to format",
+                        "description": "File path to format.",
                     }
                 },
                 "required": ["source"],
                 "additionalProperties": False,
             },
-            "strict": True,
+            # "strict": True,
         },
     },
     {
         "type": "function",
         "function": {
             "name": "count_weekday",
-            "description": "Count the occurrences of a specific weekday in the file `/data/dates.txt`",
+            "description": "Count the occurrences of a specific weekday in the provided file",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -171,22 +172,27 @@ task_tools = [
                         "description": "Day of the week (in English)",
                     },
                     "source": {
-                        "type": "string",
-                        "description": "Path to the source file",
+                        "type": ["string", "null"],
+                        "description": "Path to the source file. If unavailable, set to null.",
+                        "nullable": True,
+                    },
+                    "destination": {
+                        "type": ["string", "null"],
+                        "description": "Path to the destination file. If unavailable, set to null.",
                         "nullable": True,
                     },
                 },
-                "required": ["weekday", "source"],
+                "required": ["weekday", "source", "destination"],
                 "additionalProperties": False,
             },
-            "strict": True,
+            # "strict": True,
         },
     },
     {
         "type": "function",
         "function": {
             "name": "sort_contacts",
-            "description": "Sort an array of contacts by first or last name, in the file `/data/contacts.json`",
+            "description": "Sort an array of contacts by first or last name",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -197,12 +203,17 @@ task_tools = [
                         "default": "last_name",
                     },
                     "source": {
-                        "type": "string",
-                        "description": "Path to the source file",
+                        "type": ["string", "null"],
+                        "description": "Path to the source file. If unavailable, set to null.",
+                        "nullable": True,
+                    },
+                    "destination": {
+                        "type": ["string", "null"],
+                        "description": "Path to the destination file. If unavailable, set to null.",
                         "nullable": True,
                     },
                 },
-                "required": ["order", "source"],
+                "required": ["order", "source", "destination"],
                 "additionalProperties": False,
             },
             "strict": True,
@@ -212,7 +223,7 @@ task_tools = [
         "type": "function",
         "function": {
             "name": "write_recent_logs",
-            "description": "Write the first line of the **10** most recent `.log` files in `/data/logs/`, most recent first",
+            "description": "Write the first line of the **10** most recent `.log` files in the directory `/data/logs/`, most recent first",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -221,75 +232,120 @@ task_tools = [
                         "description": "Number of records to be listed",
                     },
                     "source": {
-                        "type": "string",
-                        "description": "Path to the directory containing log files",
+                        "type": ["string", "null"],
+                        "description": "Path to the directory containing log files. If unavailable, set to null.",
+                        "nullable": True,
+                    },
+                    "destination": {
+                        "type": ["string", "null"],
+                        "description": "Path to the destination file. If unavailable, set to null.",
                         "nullable": True,
                     },
                 },
-                "required": ["count", "source"],
+                "required": ["count", "source", "destination"],
                 "additionalProperties": False,
             },
-            "strict": True,
+            # "strict": True,
         },
     },
     {
         "type": "function",
         "function": {
             "name": "extract_markdown_titles",
-            "description": "Index Markdown (.md) files in `/data/docs/` and extract their titles",
+            "description": "Index Markdown (.md) files in the directory `/data/docs/` and extract their titles",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "source": {
-                        "type": "string",
-                        "description": "Path to the directory containing Markdown files",
+                        "type": ["string", "null"],
+                        "description": "Path to the directory containing Markdown files. If unavailable, set to null.",
+                        "nullable": True,
+                    },
+                    "destination": {
+                        "type": ["string", "null"],
+                        "description": "Path to the destination file. If unavailable, set to null.",
                         "nullable": True,
                     },
                 },
-                "required": ["source"],
+                "required": ["source", "destination"],
                 "additionalProperties": False,
             },
-            "strict": True,
+            # "strict": True,
         },
     },
     {
         "type": "function",
         "function": {
             "name": "extract_email_sender",
-            "description": "Extract the **sender's** email address from an email message from `/data/email.txt`",
+            "description": "Extract the **sender's** email address in an email message from `/data/email.txt`",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "source": {
-                        "type": "string",
-                        "description": "Path to the source file containing the email message",
+                        "type": ["string", "null"],
+                        "description": "Path to the source file. If unavailable, set to null.",
+                        "nullable": True,
+                    },
+                    "destination": {
+                        "type": ["string", "null"],
+                        "description": "Path to the destination file. If unavailable, set to null.",
                         "nullable": True,
                     },
                 },
-                "required": ["source"],
+                "required": ["source", "destination"],
                 "additionalProperties": False,
             },
-            "strict": True,
+            # "strict": True,
         },
     },
     {
         "type": "function",
         "function": {
             "name": "extract_credit_card_number",
-            "description": "Extract the 16 digit code from the image `/data/credit_card.png`",
+            "description": "Extract the 16 digit code from the image",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "source": {
-                        "type": "string",
-                        "description": "Path to the source image file containing the credit card",
+                        "type": ["string", "null"],
+                        "description": "Path to the source image file. If unavailable, set to null.",
                         "nullable": True,
-                    }
+                    },
+                    "destination": {
+                        "type": ["string", "null"],
+                        "description": "Path to the destination file. If unavailable, set to null.",
+                        "nullable": True,
+                    },
                 },
-                "required": ["source"],
+                "required": ["source", "destination"],
                 "additionalProperties": False,
             },
-            "strict": True,
+            # "strict": True,
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "similar_comments",
+            "description": "Find the most similar pair of comments",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "source": {
+                        "type": ["string", "null"],
+                        "description": "Path to the source file. If unavailable, set to null.",
+                        "nullable": True,
+                    },
+                    "destination": {
+                        "type": ["string", "null"],
+                        "description": "Path to the destination file. If unavailable, set to null.",
+                        "nullable": True,
+                    },
+                },
+                "required": ["source", "destination"],
+                "additionalProperties": False,
+            },
+            # "strict": True,
         },
     },
 ]
@@ -299,7 +355,7 @@ def get_task_tool(task: str, tools: list[Dict[str, Any]]) -> Dict[str, Any]:
     response = httpx.post(
         f"{AI_URL}/chat/completions",
         headers={
-            "Authorization": f"Bearer {AIPROXY_TOKEN}",
+            "Authorization": f"Bearer {AIPROXY_TOKEN}:{APP_ID}",
             "Content-Type": "application/json",
         },
         json={
@@ -310,7 +366,7 @@ def get_task_tool(task: str, tools: list[Dict[str, Any]]) -> Dict[str, Any]:
         },
     )
 
-    response.raise_for_status()
+    # response.raise_for_status()
 
     json_response = response.json()
 
@@ -324,7 +380,7 @@ def get_chat_completions(messages: list[Dict[str, Any]]) -> Dict[str, Any]:
     response = httpx.post(
         f"{AI_URL}/chat/completions",
         headers={
-            "Authorization": f"Bearer {AIPROXY_TOKEN}",
+            "Authorization": f"Bearer {AIPROXY_TOKEN}:{APP_ID}",
             "Content-Type": "application/json",
         },
         json={
@@ -333,8 +389,8 @@ def get_chat_completions(messages: list[Dict[str, Any]]) -> Dict[str, Any]:
         },
     )
 
-    response.raise_for_status()
-    
+    # response.raise_for_status()
+
     json_response = response.json()
 
     if "error" in json_response:
@@ -347,23 +403,23 @@ def get_embeddings(text: str) -> Dict[str, Any]:
     response = httpx.post(
         f"{AI_URL}/embeddings",
         headers={
-            "Authorization": f"Bearer {AIPROXY_TOKEN}",
+            "Authorization": f"Bearer {AIPROXY_TOKEN}:{APP_ID}",
             "Content-Type": "application/json",
         },
         json={
             "model": AI_EMBEDDINGS_MODEL,
-            "text": text,
+            "input": text,
         },
     )
 
-    response.raise_for_status()
+    # response.raise_for_status()
 
     json_response = response.json()
 
     if "error" in json_response:
         raise HTTPException(status_code=500, detail=json_response["error"]["message"])
 
-    return json_response["choices"][0]["embedding"]
+    return json_response["data"][0]["embedding"]
 
 
 def file_rename(name: str, suffix: str) -> str:
@@ -423,8 +479,11 @@ def initialize_data():
 
 
 # A2. Format a file using prettier
-def format_file(source: str) -> dict:
-    file_path = source or os.path.join(DATA_DIR, "format.md")
+def format_file(source: str = None) -> dict:
+    if not source:
+        raise HTTPException(status_code=400, detail="Source file is required")
+
+    file_path: str = source
 
     if not os.path.exists(file_path):
         raise HTTPException(status_code=404, detail="File not found")
@@ -459,12 +518,15 @@ day_names = [
 ]
 
 
-def count_weekday(weekday: str, source: str = None) -> dict:
+def count_weekday(weekday: str, source: str = None, destination: str = None) -> dict:
     weekday = normalize_weekday(weekday)
     weekday_index = day_names.index(weekday)
 
-    file_path: str = source or os.path.join(DATA_DIR, "dates.txt")
-    output_path: str = file_rename(file_path, f"-{weekday}.txt")
+    if not source:
+        raise HTTPException(status_code=400, detail="Source file is required")
+
+    file_path: str = source
+    output_path: str = destination or file_rename(file_path, f"-{weekday}.txt")
 
     if not os.path.exists(file_path):
         raise HTTPException(status_code=404, detail="File not found")
@@ -505,10 +567,16 @@ def normalize_weekday(weekday):
 
 
 # A4. Sort the array of contacts by last name and first name
-def sort_contacts(order: str, source: str) -> dict:
+def sort_contacts(
+    order: str = None, source: str = None, destination: str = None
+) -> dict:
     order = order or "last_name"
-    file_path = source or os.path.join(DATA_DIR, "contacts.json")
-    output_path = file_rename(file_path, "-sorted.json")
+
+    if not source:
+        raise HTTPException(status_code=400, detail="Source file is required")
+
+    file_path: str = source
+    output_path: str = destination or file_rename(file_path, "-sorted.json")
 
     if not os.path.exists(file_path):
         raise HTTPException(status_code=404, detail="File not found")
@@ -533,13 +601,16 @@ def sort_contacts(order: str, source: str) -> dict:
 
 
 # A5. Write the first line of the 10 most recent .log file in /data/logs/ to /data/logs-recent.txt, most recent first
-def write_recent_logs(count: int, source: str):
-    file_path: str = source or os.path.join(DATA_DIR, "logs")
-    file_dir_name: str = os.path.dirname(file_path)
-    output_path: str = os.path.join(DATA_DIR, f"{file_dir_name}-recent.txt")
-
+def write_recent_logs(count: int, source: str = None, destination: str = None):
     if count < 1:
         raise HTTPException(status_code=400, detail="Invalid count")
+
+    if not source:
+        raise HTTPException(status_code=400, detail="Source file is required")
+
+    file_path: str = source
+    file_dir: str = os.path.dirname(file_path)
+    output_path: str = destination or os.path.join(DATA_DIR, f"{file_dir}-recent.txt")
 
     if not os.path.exists(file_path):
         raise HTTPException(status_code=404, detail="File not found")
@@ -569,9 +640,12 @@ def write_recent_logs(count: int, source: str):
 
 
 # A6. Index for Markdown (.md) files in /data/docs/
-def extract_markdown_titles(source: str):
-    file_path = source or os.path.join(DATA_DIR, "docs")
-    output_path = os.path.join(file_path, "index.json")
+def extract_markdown_titles(source: str = None, destination: str = None):
+    if not source:
+        raise HTTPException(status_code=400, detail="Source file is required")
+
+    file_path: str = source
+    output_path: str = destination or os.path.join(file_path, "index.json")
 
     if not os.path.exists(file_path):
         raise HTTPException(status_code=404, detail="Directory not found")
@@ -609,9 +683,12 @@ def collect_markdown_titles(directory: str, index: dict):
 
 
 # A7. Extract the sender's email address from an email message
-def extract_email_sender(source: str):
-    file_path = source or os.path.join(DATA_DIR, "email.txt")
-    output_path = file_rename(file_path, "-sender.txt")
+def extract_email_sender(source: str = None, destination: str = None):
+    if not source:
+        raise HTTPException(status_code=400, detail="Source file is required")
+
+    file_path: str = source
+    output_path: str = destination or file_rename(file_path, "-sender.txt")
 
     if not os.path.exists(file_path):
         raise HTTPException(status_code=404, detail="File not found")
@@ -652,9 +729,12 @@ def encode_image(image_path: str, format: str):
     return base64_image
 
 
-def extract_credit_card_number(source: str):
-    file_path = source or os.path.join(DATA_DIR, "credit_card.png")
-    output_path = file_rename(file_path, "-number.txt")
+def extract_credit_card_number(source: str = None, destination: str = None):
+    if not source:
+        raise HTTPException(status_code=400, detail="Source file is required")
+
+    file_path: str = source
+    output_path: str = destination or file_rename(file_path, "-number.txt")
 
     if not os.path.exists(file_path):
         raise HTTPException(status_code=404, detail="Image file not found")
@@ -713,9 +793,15 @@ def cosine_similarity(vec1, vec2):
     return np.dot(vec1, vec2) / (np.linalg.norm(vec1) * np.linalg.norm(vec2))
 
 
-def similar_comments(source: str):
-    file_path = source or os.path.join(DATA_DIR, "comments.txt")
-    output_path = file_rename(file_path, "-similar.txt")
+def similar_comments(source: str = None, destination: str = None):
+    if not source:
+        raise HTTPException(status_code=400, detail="Source file is required")
+
+    file_path: str = source
+    output_path: str = destination or file_rename(file_path, "-similar.txt")
+
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="File not found")
 
     # Load comments
     with open(file_path, "r", encoding="utf-8") as f:
