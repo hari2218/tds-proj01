@@ -1,6 +1,5 @@
 from fastapi import FastAPI, HTTPException, Response
 import subprocess
-import os
 import json
 import sqlite3
 from datetime import datetime
@@ -14,7 +13,7 @@ from PIL import Image
 from fastapi.middleware.cors import CORSMiddleware
 import httpx
 import os
-from typing import Dict, Any
+from typing import Dict, Any, List
 from dateutil import parser
 import sys
 import logging
@@ -63,6 +62,7 @@ if not AIPROXY_TOKEN:
 
 APP_ID = "hari-tds2025-project1"
 
+
 # POST `/run?task=<task description>`` Executes a plain‑English task.
 # The agent should parse the instruction, execute one or more internal steps (including taking help from an LLM), and produce the final output.
 # - If successful, return a HTTP 200 OK response
@@ -79,9 +79,7 @@ def run_task(task: str):
         return execute_tool_calls(tool)
 
     except Exception as e:
-        detail: str = e.detail if hasattr(e, "detail") else str(e)
-
-        raise HTTPException(status_code=500, detail=detail)
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 def execute_tool_calls(tool: Dict[str, Any]) -> Any:
@@ -129,13 +127,11 @@ def read_file(path: str) -> Response:
     try:
         with open(path, "r") as f:
             content = f.read()
+
         return Response(content=content, media_type="text/plain")
 
-    except FileNotFoundError:
-        raise HTTPException(status_code=404, detail="File not found")
-
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # Task implementations
@@ -348,6 +344,33 @@ task_tools = [
             # "strict": True,
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "calculate_ticket_sales",
+            "description": "Calculate ticket sales for a specific item from a database",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "item": {
+                        "type": "string",
+                        "description": "The type of ticket item to calculate sales for",
+                    },
+                    "source": {
+                        "type": ["string", "null"],
+                        "description": "Path to the source file. If unavailable, set to null.",
+                    },
+                    "destination": {
+                        "type": ["string", "null"],
+                        "description": "Path to the destination file. If unavailable, set to null.",
+                    },
+                },
+                "required": ["item", "source", "destination"],
+                "additionalProperties": False,
+            },
+            "strict": True,
+        },
+    },
 ]
 
 
@@ -479,7 +502,7 @@ def initialize_data():
 
 
 # A2. Format a file using prettier
-def format_file(source: str = None) -> dict:
+def format_file(source: str = None):
     if not source:
         raise HTTPException(status_code=400, detail="Source file is required")
 
@@ -488,22 +511,18 @@ def format_file(source: str = None) -> dict:
     if not os.path.exists(file_path):
         raise HTTPException(status_code=404, detail="File not found")
 
-    try:
-        result = subprocess.run(
-            ["prettier", "--write", file_path],
-            shell=True,
-            check=True,
-            capture_output=True,
-            text=True,
-        )
+    result = subprocess.run(
+        ["prettier", "--write", file_path],
+        shell=True,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
 
-        if result.stderr:
-            raise HTTPException(status_code=500, detail=result.stderr)
+    if result.stderr:
+        raise HTTPException(status_code=500, detail=result.stderr)
 
-        return {"message": "File formatted", "source": file_path, "status": "success"}
-
-    except subprocess.CalledProcessError as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    return {"status": "success", "source": file_path}
 
 
 # A3. Count the number of week-days in the list of dates
@@ -541,7 +560,6 @@ def count_weekday(weekday: str, source: str = None, destination: str = None) -> 
 
     return {
         "message": f"{weekday} counted",
-        "count": day_count,
         "source": file_path,
         "destination": output_path,
         "status": "success",
@@ -567,11 +585,7 @@ def normalize_weekday(weekday):
 
 
 # A4. Sort the array of contacts by last name and first name
-def sort_contacts(
-    order: str = None, source: str = None, destination: str = None
-) -> dict:
-    order = order or "last_name"
-
+def sort_contacts(order: str, source: str = None, destination: str = None) -> dict:
     if not source:
         raise HTTPException(status_code=400, detail="Source file is required")
 
@@ -581,23 +595,27 @@ def sort_contacts(
     if not os.path.exists(file_path):
         raise HTTPException(status_code=404, detail="File not found")
 
-    with open(file_path, "r") as f:
-        contacts = json.load(f)
+    try:
+        with open(file_path, "r") as f:
+            contacts = json.load(f)
 
-    key1: str = "last_name" if order != "first_name" else "first_name"
-    key2: str = "last_name" if key1 == "first_name" else "first_name"
+        key1: str = "last_name" if order != "first_name" else "first_name"
+        key2: str = "last_name" if key1 == "first_name" else "first_name"
 
-    contacts.sort(key=lambda x: (x.get(key1, ""), x.get(key2, "")))
+        contacts.sort(key=lambda x: (x.get(key1, ""), x.get(key2, "")))
 
-    with open(output_path, "w") as f:
-        json.dump(contacts, f, indent=4)
+        with open(output_path, "w") as f:
+            json.dump(contacts, f, indent=4)
 
-    return {
-        "message": "Contacts sorted",
-        "source": file_path,
-        "destination": output_path,
-        "status": "success",
-    }
+        return {
+            "message": "Contacts sorted",
+            "source": file_path,
+            "destination": output_path,
+            "status": "success",
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # A5. Write the first line of the 10 most recent .log file in /data/logs/ to /data/logs-recent.txt, most recent first
@@ -606,37 +624,35 @@ def write_recent_logs(count: int, source: str = None, destination: str = None):
         raise HTTPException(status_code=400, detail="Invalid count")
 
     if not source:
-        raise HTTPException(status_code=400, detail="Source file is required")
+        raise HTTPException(status_code=400, detail="Source directory is required")
 
-    file_path: str = source
-    file_dir: str = os.path.dirname(file_path)
-    output_path: str = destination or os.path.join(DATA_DIR, f"{file_dir}-recent.txt")
+    if not os.path.isdir(source):
+        raise HTTPException(status_code=404, detail="Source directory not found")
 
-    if not os.path.exists(file_path):
-        raise HTTPException(status_code=404, detail="File not found")
+    output_path: str = destination or os.path.join(DATA_DIR, "logs-recent.txt")
 
-    log_files = sorted(
-        [
-            os.path.join(file_path, f)
-            for f in os.listdir(file_path)
-            if f.endswith(".log")
-        ],
-        key=os.path.getmtime,
-        reverse=True,
-    )
+    try:
+        log_files = sorted(
+            [os.path.join(source, f) for f in os.listdir(source) if f.endswith(".log")],
+            key=os.path.getmtime,
+            reverse=True,
+        )
 
-    with open(output_path, "w") as out:
-        for log_file in log_files[:count]:
-            with open(log_file, "r") as f:
-                first_line = f.readline().strip()
-                out.write(f"{first_line}\n")
+        with open(output_path, "w") as out:
+            for log_file in log_files[:count]:
+                with open(log_file, "r") as f:
+                    first_line = f.readline().strip()
+                    out.write(f"{first_line}\n")
 
-    return {
-        "message": "Recent logs written",
-        "log_dir": file_path,
-        "output_file": output_path,
-        "status": "success",
-    }
+        return {
+            "message": "Recent logs written",
+            "source": source,
+            "destination": output_path,
+            "status": "success",
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # A6. Index for Markdown (.md) files in /data/docs/
@@ -651,35 +667,37 @@ def extract_markdown_titles(source: str = None, destination: str = None):
         raise HTTPException(status_code=404, detail="Directory not found")
 
     index = {}
-    collect_markdown_titles(file_path, index)
 
-    with open(output_path, "w") as f:
-        json.dump(index, f, indent=4)
-
-    return {
-        "message": "Markdown titles extracted",
-        "file_dir": file_path,
-        "index_file": output_path,
-        "status": "success",
-    }
-
-
-def collect_markdown_titles(directory: str, index: dict):
-    for root, _, files in os.walk(directory):
-        for file in files:
-            if file.endswith(".md"):
-                file_path = os.path.join(root, file)
-                with open(file_path, "r") as f:
-                    title = None
-                    for line in f:
-                        if line.startswith("# "):
-                            title = line[2:].strip()
-                            break
-
+    try:
+        for root, _, files in os.walk(file_path):
+            for file in files:
+                if file.endswith(".md"):
+                    file_path = os.path.join(root, file)
+                    title = extract_title_from_markdown(file_path)
                     if title:
-                        relative_path = os.path.relpath(file_path, directory)
+                        relative_path = os.path.relpath(file_path, source)
                         relative_path = re.sub(r"[\\/]+", "/", relative_path)
                         index[relative_path] = title
+
+        with open(output_path, "w") as f:
+            json.dump(index, f, indent=4)
+
+        return {
+            "message": "Markdown titles extracted",
+            "source": file_path,
+            "destination": output_path,
+            "status": "success",
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+def extract_title_from_markdown(file_path: str) -> Optional[str]:
+    with open(file_path, "r", encoding="utf-8") as f:
+        for line in f:
+            if line.startswith("# "):
+                return line[2:].strip()
 
 
 # A7. Extract the sender's email address from an email message
@@ -693,43 +711,44 @@ def extract_email_sender(source: str = None, destination: str = None):
     if not os.path.exists(file_path):
         raise HTTPException(status_code=404, detail="File not found")
 
-    with open(file_path, "r") as f:
-        email_content = f.read()
+    try:
+        with open(file_path, "r") as f:
+            email_content = f.read()
 
-    response = get_chat_completions(
-        [
-            {"role": "system", "content": "Extract the sender's email."},
-            {"role": "user", "content": email_content},
-        ]
-    )
+        response = get_chat_completions(
+            [
+                {"role": "system", "content": "Extract the sender's email."},
+                {"role": "user", "content": email_content},
+            ]
+        )
 
-    extracted_email = response["content"].strip()
+        extracted_email = response["content"].strip()
 
-    with open(output_path, "w") as f:
-        f.write(extracted_email)
+        with open(output_path, "w") as f:
+            f.write(extracted_email)
 
-    return {
-        "message": "Email extracted",
-        "source": file_path,
-        "destination": output_path,
-        "status": "success",
-    }
+        return {
+            "message": "Email extracted",
+            "source": file_path,
+            "destination": output_path,
+            "status": "success",
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # A8. Extract credit card number.
 def encode_image(image_path: str, format: str):
-    image = Image.open(image_path)
-
-    buffer = BytesIO()
-    image.save(buffer, format=format)
-    image_bytes = buffer.getvalue()
-
-    base64_image = base64.b64encode(image_bytes).decode("utf-8")
-
-    return base64_image
+    with Image.open(image_path) as image:
+        buffer = BytesIO()
+        image.save(buffer, format=format)
+        return base64.b64encode(buffer.getvalue()).decode("utf-8")
 
 
-def extract_credit_card_number(source: str = None, destination: str = None):
+def extract_credit_card_number(
+    source: str = None, destination: str = None
+) -> Dict[str, Any]:
     if not source:
         raise HTTPException(status_code=400, detail="Source file is required")
 
@@ -739,53 +758,30 @@ def extract_credit_card_number(source: str = None, destination: str = None):
     if not os.path.exists(file_path):
         raise HTTPException(status_code=404, detail="Image file not found")
 
-    # Taking more time
-    reader = easyocr.Reader(["en"])
-    results = reader.readtext(file_path, detail=0)
+    try:
+        reader = easyocr.Reader(["en"])
+        results = reader.readtext(file_path, detail=0)
 
-    extracted_text = "\n".join(results)
-    extracted_text = re.sub(r"[- ]+", "", extracted_text)
-    matches = re.findall(
-        r"\b(?:4\d{12}(?:\d{3})?|5[1-5]\d{14}|3[47]\d{13}|6(?:011|5\d{2})\d{12}|3(?:0[0-5]|[68]\d)\d{11}|(?:2131|1800|35\d{3})\d{11})\b",
-        extracted_text,
-    )
+        extracted_text = "".join(results).replace(" ", "").replace("-", "")
+        matches = re.findall(
+            r"\b(?:4\d{12}(?:\d{3})?|5[1-5]\d{14}|3[47]\d{13}|6(?:011|5\d{2})\d{12}|3(?:0[0-5]|[68]\d)\d{11}|(?:2131|1800|35\d{3})\d{11})\b",
+            extracted_text,
+        )
 
-    extracted_number = (
-        matches[0] if (matches and len(matches) > 0) else "No credit card number found"
-    )
+        extracted_number = matches[0] if matches else "No credit card number found"
 
-    ## hard to install pytesseract
-    # image = Image.open(file_path)
-    # extracted_text = pytesseract.image_to_string(image)
+        with open(output_path, "w") as f:
+            f.write(extracted_number)
 
-    ## below not working because of sensity data
-    # base64_image = encode_image(file_path, "PNG")
-    # image_url = f"data:image/png;base64,{base64_image}"
-    #
-    # response = get_chat_completions(
-    #     [
-    #         {
-    #             "role": "system",
-    #             "content": "Extract the credit card number from the image.",
-    #         },
-    #         {
-    #             "role": "user",
-    #             "content": [{"type": "image_url", "image_url": {"url": image_url}}],
-    #         },
-    #     ]
-    # )
-    #
-    # extracted_number = response["content"].strip()
+        return {
+            "message": "Credit card number extracted",
+            "source": file_path,
+            "destination": output_path,
+            "status": "success",
+        }
 
-    with open(output_path, "w") as f:
-        f.write(extracted_number)
-
-    return {
-        "message": "Credit card number extracted",
-        "source": file_path,
-        "destination": output_path,
-        "status": "success",
-    }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # A9. Simillar Comments
@@ -803,57 +799,72 @@ def similar_comments(source: str = None, destination: str = None):
     if not os.path.exists(file_path):
         raise HTTPException(status_code=404, detail="File not found")
 
-    # Load comments
-    with open(file_path, "r", encoding="utf-8") as f:
-        comments = [line.strip() for line in f.readlines()]
+    try:
+        with open(file_path, "r", encoding="utf-8") as f:
+            comments = [line.strip() for line in f.readlines()]
 
-    # Compute embeddings
-    embeddings = [get_embeddings(comment) for comment in comments]
+        embeddings = [get_embeddings(comment) for comment in comments]
 
-    # Find the most similar pair
-    max_sim = -1
-    most_similar_pair = (None, None)
+        most_similar_pair = max(
+            (
+                (
+                    comments[i],
+                    comments[j],
+                    cosine_similarity(embeddings[i], embeddings[j]),
+                )
+                for i in range(len(comments))
+                for j in range(i + 1, len(comments))
+            ),
+            key=lambda x: x[2],
+            default=(None, None, -1),
+        )
 
-    for i in range(len(comments)):
-        for j in range(i + 1, len(comments)):
-            sim = cosine_similarity(embeddings[i], embeddings[j])
-            if sim > max_sim:
-                max_sim = sim
-                most_similar_pair = (comments[i], comments[j])
+        with open(output_path, "w", encoding="utf-8") as f:
+            f.write("\n".join(most_similar_pair[:2]))
 
-    # Write the most similar pair to output file
-    with open(output_path, "w", encoding="utf-8") as f:
-        f.write("\n".join(most_similar_pair))
+        return {
+            "message": "Similar comments extracted",
+            "source": file_path,
+            "destination": output_path,
+            "status": "success",
+        }
 
-    return {
-        "message": "Similar comments extracted",
-        "source": file_path,
-        "destination": output_path,
-        "status": "success",
-    }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # A10
-def calculate_ticket_sales(task):
-    db_path = os.path.join(DATA_DIR, "ticket-sales.db")
-    output_path = os.path.join(DATA_DIR, "ticket-sales-gold.txt")
+def calculate_ticket_sales(item: str, source: str = None, destination: str = None):
+    if not source:
+        raise HTTPException(status_code=400, detail="Source file is required")
 
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
+    db_path = source
+    output_path = destination or file_rename(db_path, f"ticket-sales-{item}.txt")
 
-    cursor.execute("SELECT SUM(units * price) FROM tickets WHERE type = 'Gold'")
-    total_sales = cursor.fetchone()[0] or 0
+    if not os.path.exists(db_path):
+        raise HTTPException(status_code=404, detail="File not found")
 
-    conn.close()
+    query = "SELECT SUM(units * price) FROM tickets WHERE LOWER(TRIM(type))=?"
+    total_sales = 0
 
-    with open(output_path, "w") as f:
-        f.write(str(total_sales))
+    try:
+        with sqlite3.connect(db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute(query, (item.lower().strip(),))
+            total_sales = cursor.fetchone()[0] or 0
 
-    return {
-        "message": "Sales calculated",
-        "total_sales": total_sales,
-        "status": "success",
-    }
+        with open(output_path, "w") as f:
+            f.write(str(total_sales))
+
+        return {
+            "message": "Ticket sales calculated",
+            "source": db_path,
+            "destination": output_path,
+            "status": "success",
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # Installion of data is done through Dockerfile
