@@ -70,11 +70,11 @@ APP_ID = "hari-tds2025-project1"
 # - If unsuccessful because of an error in the agent, return a HTTP 500 Internal Server Error response
 # - The body may optionally contain any useful information in each of these cases
 @app.post("/run")
-def run_task(task: str):
-    if not task:
-        raise HTTPException(status_code=400, detail="Task description is required")
-
+def run_task(task: str) -> Response:
     try:
+        if not task:
+            raise ValueError("Task description is required")
+
         tool = get_task_tool(task, task_tools)
         return execute_tool_calls(tool)
 
@@ -82,7 +82,7 @@ def run_task(task: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-def execute_tool_calls(tool: Dict[str, Any]) -> Any:
+def execute_tool_calls(tool: Dict[str, Any]):
     if "tool_calls" in tool:
         for tool_call in tool["tool_calls"]:
             function_name = tool_call["function"].get("name")
@@ -96,10 +96,10 @@ def execute_tool_calls(tool: Dict[str, Any]) -> Any:
                 if isinstance(function_args, dict):
                     return function_chosen(**function_args)
 
-    raise HTTPException(status_code=400, detail="Unknown task")
+    raise NotImplementedError("Unknown task")
 
 
-def parse_function_args(function_args: Optional[Any]) -> Dict[str, Any]:
+def parse_function_args(function_args: Optional[Any]):
     if function_args is not None:
         if isinstance(function_args, str):
             function_args = json.loads(function_args)
@@ -118,13 +118,13 @@ def parse_function_args(function_args: Optional[Any]) -> Dict[str, Any]:
 # - If the file does not exist, return a HTTP 404 Not Found response and an empty body
 @app.get("/read")
 def read_file(path: str) -> Response:
-    if not path:
-        raise HTTPException(status_code=400, detail="File path is required")
-
-    if not os.path.exists(path):
-        raise HTTPException(status_code=404, detail="File not found")
-
     try:
+        if not path:
+            raise ValueError("File path is required")
+
+        if not os.path.exists(path):
+            raise FileNotFoundError("File not found")
+
         with open(path, "r") as f:
             content = f.read()
 
@@ -297,7 +297,7 @@ task_tools = [
     {
         "type": "function",
         "function": {
-            "name": "extract_credit_card_number",
+            "name": "extract_card_number",
             "description": "Extract the 16 digit code from the image",
             "parameters": {
                 "type": "object",
@@ -374,7 +374,7 @@ task_tools = [
 ]
 
 
-def get_task_tool(task: str, tools: list[Dict[str, Any]]) -> Dict[str, Any]:
+def get_task_tool(task: str, tools: list[Dict[str, Any]]):
     response = httpx.post(
         f"{AI_URL}/chat/completions",
         headers={
@@ -399,7 +399,7 @@ def get_task_tool(task: str, tools: list[Dict[str, Any]]) -> Dict[str, Any]:
     return json_response["choices"][0]["message"]
 
 
-def get_chat_completions(messages: list[Dict[str, Any]]) -> Dict[str, Any]:
+def get_chat_completions(messages: list[Dict[str, Any]]):
     response = httpx.post(
         f"{AI_URL}/chat/completions",
         headers={
@@ -422,7 +422,7 @@ def get_chat_completions(messages: list[Dict[str, Any]]) -> Dict[str, Any]:
     return json_response["choices"][0]["message"]
 
 
-def get_embeddings(text: str) -> Dict[str, Any]:
+def get_embeddings(text: str):
     response = httpx.post(
         f"{AI_URL}/embeddings",
         headers={
@@ -445,7 +445,7 @@ def get_embeddings(text: str) -> Dict[str, Any]:
     return json_response["data"][0]["embedding"]
 
 
-def file_rename(name: str, suffix: str) -> str:
+def file_rename(name: str, suffix: str):
     return (re.sub(r"\.(\w+)$", "", name) + suffix).lower()
 
 
@@ -504,12 +504,12 @@ def initialize_data():
 # A2. Format a file using prettier
 def format_file(source: str = None):
     if not source:
-        raise HTTPException(status_code=400, detail="Source file is required")
+        raise ValueError("Source file is required")
 
-    file_path: str = source
+    file_path = source
 
     if not os.path.exists(file_path):
-        raise HTTPException(status_code=404, detail="File not found")
+        raise FileNotFoundError("File not found")
 
     result = subprocess.run(
         ["prettier", "--write", file_path],
@@ -537,18 +537,18 @@ day_names = [
 ]
 
 
-def count_weekday(weekday: str, source: str = None, destination: str = None) -> dict:
+def count_weekday(weekday: str, source: str = None, destination: str = None):
     weekday = normalize_weekday(weekday)
     weekday_index = day_names.index(weekday)
 
     if not source:
-        raise HTTPException(status_code=400, detail="Source file is required")
+        raise ValueError("Source file is required")
 
-    file_path: str = source
-    output_path: str = destination or file_rename(file_path, f"-{weekday}.txt")
+    file_path = source
+    output_path = destination or file_rename(file_path, f"-{weekday}.txt")
 
     if not os.path.exists(file_path):
-        raise HTTPException(status_code=404, detail="File not found")
+        raise FileNotFoundError("File not found")
 
     with open(file_path, "r") as f:
         dates = [parser.parse(line.strip()) for line in f if line.strip()]
@@ -585,115 +585,103 @@ def normalize_weekday(weekday):
 
 
 # A4. Sort the array of contacts by last name and first name
-def sort_contacts(order: str, source: str = None, destination: str = None) -> dict:
+def sort_contacts(order: str, source: str = None, destination: str = None):
     if not source:
-        raise HTTPException(status_code=400, detail="Source file is required")
+        raise ValueError("Source file is required")
 
-    file_path: str = source
-    output_path: str = destination or file_rename(file_path, "-sorted.json")
+    file_path = source
+    output_path = destination or file_rename(file_path, "-sorted.json")
 
     if not os.path.exists(file_path):
-        raise HTTPException(status_code=404, detail="File not found")
+        raise FileNotFoundError("File not found")
 
-    try:
-        with open(file_path, "r") as f:
-            contacts = json.load(f)
+    with open(file_path, "r") as f:
+        contacts = json.load(f)
 
-        key1: str = "last_name" if order != "first_name" else "first_name"
-        key2: str = "last_name" if key1 == "first_name" else "first_name"
+    key1 = "last_name" if order != "first_name" else "first_name"
+    key2 = "last_name" if key1 == "first_name" else "first_name"
 
-        contacts.sort(key=lambda x: (x.get(key1, ""), x.get(key2, "")))
+    contacts.sort(key=lambda x: (x.get(key1, ""), x.get(key2, "")))
 
-        with open(output_path, "w") as f:
-            json.dump(contacts, f, indent=4)
+    with open(output_path, "w") as f:
+        json.dump(contacts, f, indent=4)
 
-        return {
-            "message": "Contacts sorted",
-            "source": file_path,
-            "destination": output_path,
-            "status": "success",
-        }
-
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    return {
+        "message": "Contacts sorted",
+        "source": file_path,
+        "destination": output_path,
+        "status": "success",
+    }
 
 
 # A5. Write the first line of the 10 most recent .log file in /data/logs/ to /data/logs-recent.txt, most recent first
 def write_recent_logs(count: int, source: str = None, destination: str = None):
     if count < 1:
-        raise HTTPException(status_code=400, detail="Invalid count")
+        raise ValueError("Invalid count")
 
     if not source:
-        raise HTTPException(status_code=400, detail="Source directory is required")
+        raise ValueError("Source directory is required")
 
     if not os.path.isdir(source):
-        raise HTTPException(status_code=404, detail="Source directory not found")
+        raise FileNotFoundError("Source directory not found")
 
-    output_path: str = destination or os.path.join(DATA_DIR, "logs-recent.txt")
+    output_path = destination or os.path.join(DATA_DIR, "logs-recent.txt")
 
-    try:
-        log_files = sorted(
-            [os.path.join(source, f) for f in os.listdir(source) if f.endswith(".log")],
-            key=os.path.getmtime,
-            reverse=True,
-        )
+    log_files = sorted(
+        [os.path.join(source, f) for f in os.listdir(source) if f.endswith(".log")],
+        key=os.path.getmtime,
+        reverse=True,
+    )
 
-        with open(output_path, "w") as out:
-            for log_file in log_files[:count]:
-                with open(log_file, "r") as f:
-                    first_line = f.readline().strip()
-                    out.write(f"{first_line}\n")
+    with open(output_path, "w") as out:
+        for log_file in log_files[:count]:
+            with open(log_file, "r") as f:
+                first_line = f.readline().strip()
+                out.write(f"{first_line}\n")
 
-        return {
-            "message": "Recent logs written",
-            "source": source,
-            "destination": output_path,
-            "status": "success",
-        }
-
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    return {
+        "message": "Recent logs written",
+        "source": source,
+        "destination": output_path,
+        "status": "success",
+    }
 
 
 # A6. Index for Markdown (.md) files in /data/docs/
 def extract_markdown_titles(source: str = None, destination: str = None):
     if not source:
-        raise HTTPException(status_code=400, detail="Source file is required")
+        raise ValueError("Source file is required")
 
-    file_path: str = source
-    output_path: str = destination or os.path.join(file_path, "index.json")
+    file_path = source
+    output_path = destination or os.path.join(file_path, "index.json")
 
     if not os.path.exists(file_path):
-        raise HTTPException(status_code=404, detail="Directory not found")
+        raise FileNotFoundError("Directory not found")
 
     index = {}
 
-    try:
-        for root, _, files in os.walk(file_path):
-            for file in files:
-                if file.endswith(".md"):
-                    file_path = os.path.join(root, file)
-                    title = extract_title_from_markdown(file_path)
-                    if title:
-                        relative_path = os.path.relpath(file_path, source)
-                        relative_path = re.sub(r"[\\/]+", "/", relative_path)
-                        index[relative_path] = title
+    for root, _, files in os.walk(file_path):
+        for file in files:
+            if file.endswith(".md"):
+                file_path = os.path.join(root, file)
+                title = extract_title_from_markdown(file_path)
+                if title:
+                    relative_path = os.path.relpath(file_path, source)
+                    relative_path = re.sub(r"[\\/]+", "/", relative_path)
+                    index[relative_path] = title
 
-        with open(output_path, "w") as f:
-            json.dump(index, f, indent=4)
+    with open(output_path, "w") as f:
+        json.dump(index, f, indent=4)
 
-        return {
-            "message": "Markdown titles extracted",
-            "source": file_path,
-            "destination": output_path,
-            "status": "success",
-        }
-
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    return {
+        "message": "Markdown titles extracted",
+        "source": file_path,
+        "destination": output_path,
+        "status": "success",
+    }
 
 
-def extract_title_from_markdown(file_path: str) -> Optional[str]:
+def extract_title_from_markdown(file_path: str):
     with open(file_path, "r", encoding="utf-8") as f:
         for line in f:
             if line.startswith("# "):
@@ -703,39 +691,35 @@ def extract_title_from_markdown(file_path: str) -> Optional[str]:
 # A7. Extract the sender's email address from an email message
 def extract_email_sender(source: str = None, destination: str = None):
     if not source:
-        raise HTTPException(status_code=400, detail="Source file is required")
+        raise ValueError("Source file is required")
 
-    file_path: str = source
-    output_path: str = destination or file_rename(file_path, "-sender.txt")
+    file_path = source
+    output_path = destination or file_rename(file_path, "-sender.txt")
 
     if not os.path.exists(file_path):
-        raise HTTPException(status_code=404, detail="File not found")
+        raise FileNotFoundError("File not found")
 
-    try:
-        with open(file_path, "r") as f:
-            email_content = f.read()
+    with open(file_path, "r") as f:
+        email_content = f.read()
 
-        response = get_chat_completions(
-            [
-                {"role": "system", "content": "Extract the sender's email."},
-                {"role": "user", "content": email_content},
-            ]
-        )
+    response = get_chat_completions(
+        [
+            {"role": "system", "content": "Extract the sender's email."},
+            {"role": "user", "content": email_content},
+        ]
+    )
 
-        extracted_email = response["content"].strip()
+    extracted_email = response["content"].strip()
 
-        with open(output_path, "w") as f:
-            f.write(extracted_email)
+    with open(output_path, "w") as f:
+        f.write(extracted_email)
 
-        return {
-            "message": "Email extracted",
-            "source": file_path,
-            "destination": output_path,
-            "status": "success",
-        }
-
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    return {
+        "message": "Email extracted",
+        "source": file_path,
+        "destination": output_path,
+        "status": "success",
+    }
 
 
 # A8. Extract credit card number.
@@ -746,42 +730,36 @@ def encode_image(image_path: str, format: str):
         return base64.b64encode(buffer.getvalue()).decode("utf-8")
 
 
-def extract_credit_card_number(
-    source: str = None, destination: str = None
-) -> Dict[str, Any]:
+def extract_card_number(source: str = None, destination: str = None):
     if not source:
-        raise HTTPException(status_code=400, detail="Source file is required")
+        raise ValueError("Source file is required")
 
-    file_path: str = source
-    output_path: str = destination or file_rename(file_path, "-number.txt")
+    file_path = source
+    output_path = destination or file_rename(file_path, "-number.txt")
 
     if not os.path.exists(file_path):
-        raise HTTPException(status_code=404, detail="Image file not found")
+        raise FileNotFoundError("Image file not found")
 
-    try:
-        reader = easyocr.Reader(["en"])
-        results = reader.readtext(file_path, detail=0)
+    reader = easyocr.Reader(["en"])
+    results = reader.readtext(file_path, detail=0)
 
-        extracted_text = "".join(results).replace(" ", "").replace("-", "")
-        matches = re.findall(
-            r"\b(?:4\d{12}(?:\d{3})?|5[1-5]\d{14}|3[47]\d{13}|6(?:011|5\d{2})\d{12}|3(?:0[0-5]|[68]\d)\d{11}|(?:2131|1800|35\d{3})\d{11})\b",
-            extracted_text,
-        )
+    extracted_text = "".join(results).replace(" ", "").replace("-", "")
+    matches = re.findall(
+        r"\b(?:4\d{12}(?:\d{3})?|5[1-5]\d{14}|3[47]\d{13}|6(?:011|5\d{2})\d{12}|3(?:0[0-5]|[68]\d)\d{11}|(?:2131|1800|35\d{3})\d{11})\b",
+        extracted_text,
+    )
 
-        extracted_number = matches[0] if matches else "No credit card number found"
+    extracted_number = matches[0] if matches else "No credit card number found"
 
-        with open(output_path, "w") as f:
-            f.write(extracted_number)
+    with open(output_path, "w") as f:
+        f.write(extracted_number)
 
-        return {
-            "message": "Credit card number extracted",
-            "source": file_path,
-            "destination": output_path,
-            "status": "success",
-        }
-
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    return {
+        "message": "Credit card number extracted",
+        "source": file_path,
+        "destination": output_path,
+        "status": "success",
+    }
 
 
 # A9. Simillar Comments
@@ -791,80 +769,72 @@ def cosine_similarity(vec1, vec2):
 
 def similar_comments(source: str = None, destination: str = None):
     if not source:
-        raise HTTPException(status_code=400, detail="Source file is required")
+        raise ValueError("Source file is required")
 
-    file_path: str = source
-    output_path: str = destination or file_rename(file_path, "-similar.txt")
+    file_path = source
+    output_path = destination or file_rename(file_path, "-similar.txt")
 
     if not os.path.exists(file_path):
-        raise HTTPException(status_code=404, detail="File not found")
+        raise FileNotFoundError("File not found")
 
-    try:
-        with open(file_path, "r", encoding="utf-8") as f:
-            comments = [line.strip() for line in f.readlines()]
+    with open(file_path, "r", encoding="utf-8") as f:
+        comments = [line.strip() for line in f.readlines()]
 
-        embeddings = [get_embeddings(comment) for comment in comments]
+    embeddings = [get_embeddings(comment) for comment in comments]
 
-        most_similar_pair = max(
+    most_similar_pair = max(
+        (
             (
-                (
-                    comments[i],
-                    comments[j],
-                    cosine_similarity(embeddings[i], embeddings[j]),
-                )
-                for i in range(len(comments))
-                for j in range(i + 1, len(comments))
-            ),
-            key=lambda x: x[2],
-            default=(None, None, -1),
-        )
+                comments[i],
+                comments[j],
+                cosine_similarity(embeddings[i], embeddings[j]),
+            )
+            for i in range(len(comments))
+            for j in range(i + 1, len(comments))
+        ),
+        key=lambda x: x[2],
+        default=(None, None, -1),
+    )
 
-        with open(output_path, "w", encoding="utf-8") as f:
-            f.write("\n".join(most_similar_pair[:2]))
+    with open(output_path, "w", encoding="utf-8") as f:
+        f.write("\n".join(most_similar_pair[:2]))
 
-        return {
-            "message": "Similar comments extracted",
-            "source": file_path,
-            "destination": output_path,
-            "status": "success",
-        }
-
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    return {
+        "message": "Similar comments extracted",
+        "source": file_path,
+        "destination": output_path,
+        "status": "success",
+    }
 
 
 # A10
 def calculate_ticket_sales(item: str, source: str = None, destination: str = None):
     if not source:
-        raise HTTPException(status_code=400, detail="Source file is required")
+        raise ValueError("Source file is required")
 
     db_path = source
     output_path = destination or file_rename(db_path, f"ticket-sales-{item}.txt")
 
     if not os.path.exists(db_path):
-        raise HTTPException(status_code=404, detail="File not found")
+        raise FileNotFoundError("File not found")
 
     query = "SELECT SUM(units * price) FROM tickets WHERE LOWER(TRIM(type))=?"
     total_sales = 0
 
-    try:
-        with sqlite3.connect(db_path) as conn:
-            cursor = conn.cursor()
-            cursor.execute(query, (item.lower().strip(),))
-            total_sales = cursor.fetchone()[0] or 0
+    with sqlite3.connect(db_path) as conn:
+        cursor = conn.cursor()
+        cursor.execute(query, (item.lower().strip(),))
+        total_sales = cursor.fetchone()[0] or 0
 
-        with open(output_path, "w") as f:
-            f.write(str(total_sales))
+    with open(output_path, "w") as f:
+        f.write(str(total_sales))
 
-        return {
-            "message": "Ticket sales calculated",
-            "source": db_path,
-            "destination": output_path,
-            "status": "success",
-        }
-
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    return {
+        "message": "Ticket sales calculated",
+        "source": db_path,
+        "destination": output_path,
+        "status": "success",
+    }
 
 
 # Installion of data is done through Dockerfile
