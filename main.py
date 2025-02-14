@@ -1,28 +1,20 @@
-from fastapi import FastAPI, HTTPException, Response
-import subprocess
-import json
-import sqlite3
-from datetime import datetime
-from pathlib import Path
-from typing import Optional
-import requests
-import markdown2
-from bs4 import BeautifulSoup
-from openai import OpenAI
-from PIL import Image
-from fastapi.middleware.cors import CORSMiddleware
-import httpx
-import os
-from typing import Dict, Any, List
-from dateutil import parser
-import sys
-import logging
-import re
 import base64
-from PIL import Image
+import httpx
+import json
+import logging
+import os
+import re
+import sqlite3
+import subprocess
+import sys
 from io import BytesIO
+from typing import Any, Dict, Optional
 import easyocr
 import numpy as np
+from dateutil import parser
+from fastapi import FastAPI, HTTPException, Response
+from fastapi.middleware.cors import CORSMiddleware
+from PIL import Image
 
 app = FastAPI()
 
@@ -38,12 +30,13 @@ app.add_middleware(
     allow_headers=["*"],  # Allows all headers
 )
 
-ROOT_DIR: str = app.root_path
-DATA_DIR: str = f"{ROOT_DIR}/data"
+# try in Windows local
+# ROOT_DIR: str = app.root_path
+# DATA_DIR: str = f"{ROOT_DIR}/data"
+# if not os.path.exists(DATA_DIR):
+#     os.makedirs(DATA_DIR)
 
-if not os.path.exists(DATA_DIR):
-    os.makedirs(DATA_DIR)
-
+DATA_DIR: str = "/data"
 DEV_EMAIL: str = "hariharan.chandran@straive.com"
 
 # AI Proxy
@@ -83,7 +76,7 @@ def run_task(task: str) -> Response:
 
 
 def execute_tool_calls(tool: Dict[str, Any]):
-    if "tool_calls" in tool:
+    if tool and "tool_calls" in tool:
         for tool_call in tool["tool_calls"]:
             function_name = tool_call["function"].get("name")
             function_args = tool_call["function"].get("arguments")
@@ -122,6 +115,12 @@ def read_file(path: str) -> Response:
         if not path:
             raise ValueError("File path is required")
 
+        # dont allow path pout side DATA_DIR
+        abs1 = os.path.abspath(path).lower()
+        abs2 = os.path.abspath(DATA_DIR).lower()
+        if not os.path.abspath(abs1).startswith(abs2):
+            raise PermissionError("Acces denied")
+
         if not os.path.exists(path):
             raise FileNotFoundError("File not found")
 
@@ -152,7 +151,6 @@ task_tools = [
                 "required": ["source"],
                 "additionalProperties": False,
             },
-            # "strict": True,
         },
     },
     {
@@ -178,10 +176,9 @@ task_tools = [
                         "nullable": True,
                     },
                 },
-                "required": ["weekday", "source", "destination"],
+                "required": ["weekday", "source"],
                 "additionalProperties": False,
             },
-            # "strict": True,
         },
     },
     {
@@ -209,10 +206,9 @@ task_tools = [
                         "nullable": True,
                     },
                 },
-                "required": ["order", "source", "destination"],
+                "required": ["order", "source"],
                 "additionalProperties": False,
             },
-            "strict": True,
         },
     },
     {
@@ -238,10 +234,9 @@ task_tools = [
                         "nullable": True,
                     },
                 },
-                "required": ["count", "source", "destination"],
+                "required": ["count", "source"],
                 "additionalProperties": False,
             },
-            # "strict": True,
         },
     },
     {
@@ -263,10 +258,9 @@ task_tools = [
                         "nullable": True,
                     },
                 },
-                "required": ["source", "destination"],
+                "required": ["source"],
                 "additionalProperties": False,
             },
-            # "strict": True,
         },
     },
     {
@@ -288,10 +282,9 @@ task_tools = [
                         "nullable": True,
                     },
                 },
-                "required": ["source", "destination"],
+                "required": ["source"],
                 "additionalProperties": False,
             },
-            # "strict": True,
         },
     },
     {
@@ -313,10 +306,9 @@ task_tools = [
                         "nullable": True,
                     },
                 },
-                "required": ["source", "destination"],
+                "required": ["source"],
                 "additionalProperties": False,
             },
-            # "strict": True,
         },
     },
     {
@@ -338,10 +330,9 @@ task_tools = [
                         "nullable": True,
                     },
                 },
-                "required": ["source", "destination"],
+                "required": ["source"],
                 "additionalProperties": False,
             },
-            # "strict": True,
         },
     },
     {
@@ -359,22 +350,23 @@ task_tools = [
                     "source": {
                         "type": ["string", "null"],
                         "description": "Path to the source file. If unavailable, set to null.",
+                        "nullable": True,
                     },
                     "destination": {
                         "type": ["string", "null"],
                         "description": "Path to the destination file. If unavailable, set to null.",
+                        "nullable": True,
                     },
                 },
-                "required": ["item", "source", "destination"],
+                "required": ["item", "source"],
                 "additionalProperties": False,
             },
-            "strict": True,
         },
     },
 ]
 
 
-def get_task_tool(task: str, tools: list[Dict[str, Any]]):
+def get_task_tool(task: str, tools: list[Dict[str, Any]]) -> Dict[str, Any]:
     response = httpx.post(
         f"{AI_URL}/chat/completions",
         headers={
@@ -813,7 +805,7 @@ def calculate_ticket_sales(item: str, source: str = None, destination: str = Non
         raise ValueError("Source file is required")
 
     db_path = source
-    output_path = destination or file_rename(db_path, f"ticket-sales-{item}.txt")
+    output_path = destination or file_rename(db_path, f"-{item}.txt")
 
     if not os.path.exists(db_path):
         raise FileNotFoundError("File not found")
