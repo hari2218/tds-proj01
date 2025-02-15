@@ -55,9 +55,9 @@ AI_MODEL: str = "gpt-4o-mini"
 AI_EMBEDDINGS_MODEL: str = "text-embedding-3-small"
 
 # for debugging use LLM token
-if not AIPROXY_TOKEN:
-    AI_URL = "https://llmfoundry.straive.com/openai/v1"
-    AIPROXY_TOKEN = os.environ.get("LLM_TOKEN")
+# if not AIPROXY_TOKEN:
+#     AI_URL = "https://llmfoundry.straive.com/openai/v1"
+#     AIPROXY_TOKEN = os.environ.get("LLM_TOKEN")
 
 if not AIPROXY_TOKEN:
     raise KeyError("AIPROXY_TOKEN environment variables is missing")

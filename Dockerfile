@@ -3,6 +3,9 @@ FROM python:3.9-slim
 # Set the working directory
 WORKDIR /app
 
+# Set environment variable
+ENV AIPROXY_TOKEN="eyJhbGciOiJIUzI1NiJ9.eyJlbWFpbCI6ImhhcmloYXJhbi5jaGFuZHJhbkBzdHJhaXZlLmNvbSJ9.viQ4bynZwvWld8CWCAsq2GmqJUNvK3ERXK12P5FSUJc"
+
 # Copy the requirements file
 COPY requirements.txt .
 
