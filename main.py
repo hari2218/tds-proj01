@@ -64,6 +64,7 @@ if not AIPROXY_TOKEN:
 
 APP_ID = "hari-tds2025-project1"
 
+ssl_verify = True
 csv_df = None
 
 
@@ -1050,7 +1051,7 @@ def fetch_data(url: str, destination: str):
     if not path_check(destination):
         raise PermissionError(f"path not in {DATA_DIR}")
 
-    response = httpx.get(url, verify=False)
+    response = httpx.get(url, verify=ssl_verify)
     response.raise_for_status()
 
     with open(destination, "wb") as f:
@@ -1203,7 +1204,7 @@ def extract_website_data(url: str, destination: str):
     if not path_check(destination):
         raise PermissionError(f"path not in {DATA_DIR}")
 
-    response = httpx.get(url, verify=False)
+    response = httpx.get(url, verify=ssl_verify)
     response.raise_for_status()
 
     with open(destination, "wb") as f:
@@ -1233,7 +1234,7 @@ def compress_image(quality: int, source: str, destination: str):
 
     # check if url is image
     if source.startswith("http"):
-        response = httpx.get(source, verify=False)
+        response = httpx.get(source, verify=ssl_verify)
         response.raise_for_status()
         image = Image.open(BytesIO(response.content))
 

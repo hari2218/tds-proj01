@@ -2,6 +2,10 @@ FROM python:3.9-slim
 
 LABEL maintainer="Hariharan C <hariharan.chandran@straive.com>"
 
+ENV PYTHONHTTPSVERIFY=0
+ENV CURLOPT_SSL_VERIFYHOST=0
+ENV CURLOPT_SSL_VERIFYPEER=0
+
 # Set the working directory
 WORKDIR /app
 
@@ -13,6 +17,9 @@ RUN apt-get update && \
     apt-get install -y ffmpeg nodejs npm && \
     pip install --no-cache-dir virtualenv uv && \
     virtualenv venv
+
+# Install certificates
+RUN apt-get update && apt-get install -y ca-certificates && update-ca-certificates
 
 # Activate the virtual environment and install Python packages
 RUN . venv/bin/activate && uv pip install --no-cache-dir -r requirements.txt
