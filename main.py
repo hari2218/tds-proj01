@@ -22,6 +22,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from PIL import Image
 import speech_recognition as sr
 from pydub import AudioSegment
+import mimetypes
+import stat
 
 app = FastAPI()
 
@@ -114,11 +116,6 @@ def parse_function_args(function_args: Optional[Any]):
     return function_args
 
 
-# GET `/read?path=<file path>` Returns the content of the specified file.
-# This is critical for verification of the exact output.
-# - If successful, return a HTTP 200 OK response with the file content as plain text
-# - If the file does not exist, return a HTTP 404 Not Found response and an empty body
-@app.get("/read")
 def path_check(path):
     abs1 = os.path.abspath(path).lower()
     abs2 = os.path.abspath(DATA_DIR).lower()
@@ -126,6 +123,11 @@ def path_check(path):
     return os.path.abspath(abs1).startswith(abs2)
 
 
+# GET `/read?path=<file path>` Returns the content of the specified file.
+# This is critical for verification of the exact output.
+# - If successful, return a HTTP 200 OK response with the file content as plain text
+# - If the file does not exist, return a HTTP 404 Not Found response and an empty body
+@app.get("/read")
 def read_file(path: str) -> Response:
     try:
         if not path:
@@ -138,10 +140,13 @@ def read_file(path: str) -> Response:
         if not os.path.exists(path):
             raise FileNotFoundError("File not found")
 
-        with open(path, "r") as f:
+        mime_type, _ = mimetypes.guess_type(path)
+        mime_type = mime_type or "application/octet-stream"
+
+        with open(path, "rb") as f:
             content = f.read()
 
-        return Response(content=content, media_type="text/plain")
+        return Response(content=content, media_type=mime_type)
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -190,7 +195,7 @@ task_tools = [
                         # "nullable": True,
                     },
                 },
-                "required": ["weekday", "source"],
+                "required": ["weekday", "source", "destination"],
                 "additionalProperties": False,
             },
         },
@@ -220,7 +225,7 @@ task_tools = [
                         # "nullable": True,
                     },
                 },
-                "required": ["order", "source"],
+                "required": ["order", "source", "destination"],
                 "additionalProperties": False,
             },
         },
@@ -248,7 +253,7 @@ task_tools = [
                         # "nullable": True,
                     },
                 },
-                "required": ["count", "source"],
+                "required": ["count", "source", "destination"],
                 "additionalProperties": False,
             },
         },
@@ -272,7 +277,7 @@ task_tools = [
                         # "nullable": True,
                     },
                 },
-                "required": ["source"],
+                "required": ["source", "destination"],
                 "additionalProperties": False,
             },
         },
@@ -296,7 +301,7 @@ task_tools = [
                         # "nullable": True,
                     },
                 },
-                "required": ["source"],
+                "required": ["source", "destination"],
                 "additionalProperties": False,
             },
         },
@@ -320,7 +325,7 @@ task_tools = [
                         # "nullable": True,
                     },
                 },
-                "required": ["source"],
+                "required": ["source", "destination"],
                 "additionalProperties": False,
             },
         },
@@ -344,7 +349,7 @@ task_tools = [
                         # "nullable": True,
                     },
                 },
-                "required": ["source"],
+                "required": ["source", "destination"],
                 "additionalProperties": False,
             },
         },
@@ -372,7 +377,7 @@ task_tools = [
                         # "nullable": True,
                     },
                 },
-                "required": ["item", "source"],
+                "required": ["item", "source", "destination"],
                 "additionalProperties": False,
             },
         },
@@ -396,7 +401,7 @@ task_tools = [
                         # "nullable": True,
                     },
                 },
-                "required": ["url"],
+                "required": ["url", "destination"],
                 "additionalProperties": False,
             },
         },
@@ -420,7 +425,7 @@ task_tools = [
                         # "nullable": True,
                     },
                 },
-                "required": ["url"],
+                "required": ["url", "destination"],
                 "additionalProperties": False,
             },
         },
@@ -447,7 +452,7 @@ task_tools = [
                         # "nullable": True,
                     },
                 },
-                "required": ["query", "source"],
+                "required": ["query", "source", "destination"],
                 "additionalProperties": False,
             },
         },
@@ -540,7 +545,7 @@ task_tools = [
                         "description": "Path to the destination HTML file. If unavailable, set to null.",
                     },
                 },
-                "required": ["source"],
+                "required": ["source", "destination"],
                 "additionalProperties": False,
             },
         },
@@ -1060,6 +1065,26 @@ def fetch_data(url: str, destination: str):
 
 
 # B4
+def remove_readonly(func, path, _):
+    os.chmod(path, stat.S_IWRITE)  # Grant write permission
+    func(path)  # Retry deletion
+
+
+def is_git_repo(folder_path):
+    try:
+        subprocess.run(
+            ["git", "-C", folder_path, "rev-parse", "--is-inside-work-tree"],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+
+        return True
+
+    except subprocess.CalledProcessError:
+        return False
+
+
 # Clone a get rpository to a directory and commit the changes
 def clone_and_commit(url: str, destination: str):
     if not url:
@@ -1071,19 +1096,31 @@ def clone_and_commit(url: str, destination: str):
     if not path_check(destination):
         raise PermissionError(f"path not in {DATA_DIR}")
 
-    if os.path.exists(destination):
+    # causing error
+    #  if os.path.exists(destination):
+    #     shutil.rmtree(destination, onerror=remove_readonly)
+
+    if os.path.exists(destination) and not os.listdir(destination):
         shutil.rmtree(destination)
 
     os.makedirs(destination, exist_ok=True)
-    os.chmod(destination, 0o777)
+    os.chmod(destination, stat.S_IRWXU)
     os.chdir(destination)
 
-    result = subprocess.run(
-        ["git", "clone", url, "."],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
+    is_repo = is_git_repo(destination)
+
+    if is_repo:
+        result = subprocess.run(
+            ["git", "-C", ".", "pull"], check=True, capture_output=True, text=True
+        )
+
+    else:
+        result = subprocess.run(
+            ["git", "clone", url, "."],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
 
     if result.returncode != 0:
         raise HTTPException(status_code=500, detail=result.stderr)

@@ -1,5 +1,6 @@
 fastapi
 uvicorn
+httpx
 requests
 pandas
 openai
@@ -8,4 +9,7 @@ markdown2
 beautifulsoup4
 pydub
 speechrecognition
-ffmpeg
+ffmpeg-python
+scikit-learn
+uvicorn
+easyocr
