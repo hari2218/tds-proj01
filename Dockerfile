@@ -1,5 +1,7 @@
 FROM python:3.9-slim
 
+LABEL maintainer="Hariharan C <hariharan.chandran@straive.com>"
+
 # Set the working directory
 WORKDIR /app
 
@@ -28,7 +30,7 @@ COPY . .
 # ADD https://raw.githubusercontent.com/sanand0/tools-in-data-science-public/tds-2025-01/project-1/datagen.py /app/datagen.py
 
 # Run the datagen.py script with the specified argument
-RUN . venv/bin/activate && uv run https://raw.githubusercontent.com/sanand0/tools-in-data-science-public/tds-2025-01/project-1/datagen.py --data /data hariharan.chandran@straive.com
+RUN . venv/bin/activate && uv run https://raw.githubusercontent.com/sanand0/tools-in-data-science-public/tds-2025-01/project-1/datagen.py --root /data hariharan.chandran@straive.com
 
 # Expose the port the app runs on
 EXPOSE 8000
