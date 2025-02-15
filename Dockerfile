@@ -3,23 +3,23 @@ FROM python:3.9-slim
 # Set the working directory
 WORKDIR /app
 
-# Set environment variable
-ENV AIPROXY_TOKEN="eyJhbGciOiJIUzI1NiJ9.eyJlbWFpbCI6ImhhcmloYXJhbi5jaGFuZHJhbkBzdHJhaXZlLmNvbSJ9.viQ4bynZwvWld8CWCAsq2GmqJUNvK3ERXK12P5FSUJc"
-
 # Copy the requirements file
 COPY requirements.txt .
 
-# Install virtualenv
-RUN pip install --no-cache-dir virtualenv
+# Install dependencies
+RUN apt-get update && \
+    apt-get install -y ffmpeg nodejs npm && \
+    pip install --no-cache-dir virtualenv && \
+    virtualenv venv
 
-# Create a virtual environment
-RUN virtualenv venv
+# Activate the virtual environment and install Python packages
+RUN . venv/bin/activate && pip install --no-cache-dir -r requirements.txt
 
-# Activate the virtual environment and install dependencies
-RUN . venv/bin/activate && pip install --no-cache-dir -r requirements.txt && \
-    pip install --no-cache-dir -U UV && \
-    apt-get update && apt-get install -y ffmpeg && apt-get clean && rm -rf /var/lib/apt/lists/* && \
-    npm install -g prettier
+# Install prettier globally using npm
+RUN npm install -g prettier
+
+# Clean up
+RUN apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Copy the application code
 COPY . .
