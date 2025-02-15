@@ -55,16 +55,16 @@ AI_MODEL: str = "gpt-4o-mini"
 AI_EMBEDDINGS_MODEL: str = "text-embedding-3-small"
 
 # for debugging use LLM token
-# if not AIPROXY_TOKEN:
-#     AI_URL = "https://llmfoundry.straive.com/openai/v1"
-#     AIPROXY_TOKEN = os.environ.get("LLM_TOKEN")
+if not AIPROXY_TOKEN:
+    AI_URL = "https://llmfoundry.straive.com/openai/v1"
+    AIPROXY_TOKEN = os.environ.get("LLM_TOKEN")
 
 if not AIPROXY_TOKEN:
     raise KeyError("AIPROXY_TOKEN environment variables is missing")
 
 APP_ID = "tds-proj01"
 
-ssl_verify = True
+ssl_verify = False
 csv_df = None
 
 
@@ -585,6 +585,7 @@ def get_task_tool(task: str, tools: list[Dict[str, Any]]) -> Dict[str, Any]:
             "tools": tools,
             "tool_choice": "auto",
         },
+        verify=ssl_verify
     )
 
     # response.raise_for_status()
@@ -608,6 +609,7 @@ def get_chat_completions(messages: list[Dict[str, Any]]):
             "model": AI_MODEL,
             "messages": messages,
         },
+        verify=ssl_verify
     )
 
     # response.raise_for_status()
@@ -631,6 +633,7 @@ def get_embeddings(text: str):
             "model": AI_EMBEDDINGS_MODEL,
             "input": text,
         },
+        verify=ssl_verify
     )
 
     # response.raise_for_status()
@@ -698,6 +701,7 @@ def initialize_data():
     except Exception as e:
         logging.error(f"Error in initializing data: {e}")
 
+# A1.
 
 # A2. Format a file using prettier
 def format_file(source: str = None):
