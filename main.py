@@ -62,7 +62,7 @@ AI_EMBEDDINGS_MODEL: str = "text-embedding-3-small"
 if not AIPROXY_TOKEN:
     raise KeyError("AIPROXY_TOKEN environment variables is missing")
 
-APP_ID = "hari-tds2025-project1"
+APP_ID = "tds-proj01"
 
 ssl_verify = True
 csv_df = None
