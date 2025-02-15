@@ -6,3 +6,6 @@ openai
 pillow
 markdown2
 beautifulsoup4
+pydub
+speechrecognition
+ffmpeg

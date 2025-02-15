@@ -6,8 +6,11 @@ WORKDIR /app
 # Copy the requirements file
 COPY requirements.txt .
 
-# Install the dependencies and the UV module
-RUN pip install --no-cache-dir -r requirements.txt && pip install --no-cache-dir -U UV
+# Install the dependencies, the UV module, ffmpeg, and prettier
+RUN pip install --no-cache-dir -r requirements.txt && \
+	pip install --no-cache-dir -U UV && \
+	apt-get update && apt-get install -y ffmpeg && apt-get clean && rm -rf /var/lib/apt/lists/* && \
+	npm install -g prettier
 
 # Copy the application code
 COPY . .

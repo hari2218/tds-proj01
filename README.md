@@ -9,6 +9,7 @@ This project is a FastAPI application that provides various endpoints for handli
 - **A3:** Monday is designated as the first day of the week.
 - **A8:** Unable to use LLM because of fllowing error: It looks like *OpenAI's* API is blocking the request due to sensitive content policies (likely because it detects a credit card number). OpenAI has strict rules against processing personally identifiable information (PII), including credit card numbers.
 - **B10:** Used GET method with path parameters.
+- `ffmpeg` and `prettier` installed through `Docker`.
 
 ## Project Structure
 

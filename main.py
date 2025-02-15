@@ -20,6 +20,8 @@ from dateutil import parser
 from fastapi import FastAPI, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
 from PIL import Image
+import speech_recognition as sr
+from pydub import AudioSegment
 
 app = FastAPI()
 
@@ -1219,6 +1221,46 @@ def compress_image(quality: int, source: str, destination: str):
 
 # B8
 # Transcribe audio from an MP3 file
+def mp3_to_wav(mp3_path, wav_path):
+    audio = AudioSegment.from_mp3(mp3_path)
+    audio.export(wav_path, format="wav")
+
+
+def mp3_to_wav_ffmpeg(mp3_path, wav_path):
+    command = [
+        "ffmpeg",
+        "-i",
+        mp3_path,
+        "-acodec",
+        "pcm_s16le",
+        "-ac",
+        "1",
+        "-ar",
+        "16000",
+        wav_path,
+        "-y",
+    ]
+
+    subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+
+def transcribe_wav(wav_path):
+    recognizer = sr.Recognizer()
+
+    with sr.AudioFile(wav_path) as source:
+        audio_data = recognizer.record(source)
+
+        try:
+            text = recognizer.recognize_google(audio_data)
+            return text
+
+        except sr.UnknownValueError:
+            return "Could not understand audio"
+
+        except sr.RequestError:
+            return "Could not request results"
+
+
 def transcribe_audio(source: str, destination: str):
     if not source:
         raise ValueError("Source file is required")
@@ -1232,30 +1274,40 @@ def transcribe_audio(source: str, destination: str):
     if not os.path.exists(source):
         raise FileNotFoundError("Source file not found")
 
-    result = subprocess.run(
-        [
-            "ffmpeg",
-            "-i",
-            source,
-            "-f",
-            "s16le",
-            "-acodec",
-            "pcm_s16le",
-            "-ar",
-            "16000",
-            "-ac",
-            "1",
-            "-",
-        ],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
+    # Not working
+    # result = subprocess.run(
+    #     [
+    #         "ffmpeg",
+    #         "-i",
+    #         source,
+    #         "-f",
+    #         "s16le",
+    #         "-acodec",
+    #         "pcm_s16le",
+    #         "-ar",
+    #         "16000",
+    #         "-ac",
+    #         "1",
+    #         "-",
+    #     ],
+    #     stdout=subprocess.PIPE,
+    #     stderr=subprocess.PIPE,
+    # )
+    #
+    # if result.returncode != 0:
+    #     raise HTTPException(status_code=500, detail=result.stderr)
+    #
+    # with open(destination, "wb") as f:
+    #     f.write(result.stdout)
 
-    if result.returncode != 0:
-        raise HTTPException(status_code=500, detail=result.stderr)
+    mp3_file = source
+    wav_file = file_rename(mp3_file, "-audio.wav")
 
-    with open(destination, "wb") as f:
-        f.write(result.stdout)
+    mp3_to_wav(mp3_file, wav_file)
+    transcription = transcribe_wav(wav_file)
+
+    with open(destination, "w") as f:
+        f.write(transcription)
 
     return {
         "message": "Audio transcribed",
