@@ -9,11 +9,11 @@ COPY requirements.txt .
 # Install dependencies
 RUN apt-get update && \
     apt-get install -y ffmpeg nodejs npm && \
-    pip install --no-cache-dir virtualenv && \
+    pip install --no-cache-dir virtualenv uv && \
     virtualenv venv
 
 # Activate the virtual environment and install Python packages
-RUN . venv/bin/activate && pip install --no-cache-dir -r requirements.txt
+RUN . venv/bin/activate && uv pip install --no-cache-dir -r requirements.txt
 
 # Install prettier globally using npm
 RUN npm install -g prettier
@@ -25,10 +25,10 @@ RUN apt-get clean && rm -rf /var/lib/apt/lists/*
 COPY . .
 
 # Download the datagen.py script
-ADD https://raw.githubusercontent.com/sanand0/tools-in-data-science-public/tds-2025-01/project-1/datagen.py /app/datagen.py
+# ADD https://raw.githubusercontent.com/sanand0/tools-in-data-science-public/tds-2025-01/project-1/datagen.py /app/datagen.py
 
 # Run the datagen.py script with the specified argument
-RUN . venv/bin/activate && python datagen.py --data /data hariharan.chandran@straive.com
+RUN . venv/bin/activate && uv run https://raw.githubusercontent.com/sanand0/tools-in-data-science-public/tds-2025-01/project-1/datagen.py --data /data hariharan.chandran@straive.com
 
 # Expose the port the app runs on
 EXPOSE 8000
