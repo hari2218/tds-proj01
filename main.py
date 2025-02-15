@@ -7,6 +7,9 @@ import re
 import sqlite3
 import subprocess
 import sys
+import shutil
+import csv
+from datetime import datetime
 from io import BytesIO
 from typing import Any, Dict, Optional
 import easyocr
@@ -110,15 +113,20 @@ def parse_function_args(function_args: Optional[Any]):
 # - If successful, return a HTTP 200 OK response with the file content as plain text
 # - If the file does not exist, return a HTTP 404 Not Found response and an empty body
 @app.get("/read")
+def path_check(path):
+    abs1 = os.path.abspath(path).lower()
+    abs2 = os.path.abspath(DATA_DIR).lower()
+
+    return os.path.abspath(abs1).startswith(abs2)
+
+
 def read_file(path: str) -> Response:
     try:
         if not path:
             raise ValueError("File path is required")
 
         # dont allow path pout side DATA_DIR
-        abs1 = os.path.abspath(path).lower()
-        abs2 = os.path.abspath(DATA_DIR).lower()
-        if not os.path.abspath(abs1).startswith(abs2):
+        if not path_check(path):
             raise PermissionError("Acces denied")
 
         if not os.path.exists(path):
@@ -359,6 +367,81 @@ task_tools = [
                     },
                 },
                 "required": ["item", "source"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "fetch_data",
+            "description": "Fetch data from an API and save it to a file",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "url": {
+                        "type": ["string", "null"],
+                        "description": "API URL to fetch data from. If unavailable, set to null.",
+                        "nullable": True,
+                    },
+                    "destination": {
+                        "type": ["string", "null"],
+                        "description": "Path to the destination file. If unavailable, set to null.",
+                        "nullable": True,
+                    },
+                },
+                "required": ["url"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "clone_and_commit",
+            "description": "Clone a Git repository to a directory and commit the changes",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "url": {
+                        "type": ["string", "null"],
+                        "description": "Git repository URL to clone. If unavailable, set to null.",
+                        "nullable": True,
+                    },
+                    "destination": {
+                        "type": ["string", "null"],
+                        "description": "Path to the destination directory. If unavailable, set to null.",
+                        "nullable": True,
+                    },
+                },
+                "required": ["url"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "run_sql_query",
+            "description": "Run a SQL query on a SQLite database",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "The SQL query to execute",
+                    },
+                    "source": {
+                        "type": "string",
+                        "description": "Path to the source SQLite database file",
+                    },
+                    "destination": {
+                        "type": ["string", "null"],
+                        "description": "Path to the destination file to save query result. If unavailable, set to null.",
+                        "nullable": True,
+                    },
+                },
+                "required": ["query", "source"],
                 "additionalProperties": False,
             },
         },
@@ -831,3 +914,124 @@ def calculate_ticket_sales(item: str, source: str = None, destination: str = Non
 
 # Installion of data is done through Dockerfile
 # initialize_data()
+
+
+# B3
+# Fetch data from an API and save it to a file
+def fetch_data(url: str, destination: str):
+    if not url:
+        raise ValueError("API url is required")
+
+    if not destination:
+        raise ValueError("Destination directory is required")
+
+    if not path_check(destination):
+        raise PermissionError(f"path not in {DATA_DIR}")
+
+    response = httpx.get(url, verify=False)
+    response.raise_for_status()
+
+    with open(destination, "wb") as f:
+        f.write(response.content)
+
+    return {
+        "message": "API Fetched",
+        "source": url,
+        "destination": destination,
+        "status": "success",
+    }
+
+
+# B4
+# Clone a get rpository to a directory and commit the changes
+def clone_and_commit(url: str, destination: str):
+    if not url:
+        raise ValueError("Git repository url is required")
+
+    if not destination:
+        raise ValueError("Destination directory is required")
+
+    if not path_check(destination):
+        raise PermissionError(f"path not in {DATA_DIR}")
+
+    if os.path.exists(destination):
+        shutil.rmtree(destination)
+
+    os.makedirs(destination, exist_ok=True)
+    os.chmod(destination, 0o777)
+    os.chdir(destination)
+
+    result = subprocess.run(
+        ["git", "clone", url, "."],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    if result.returncode != 0:
+        raise HTTPException(status_code=500, detail=result.stderr)
+
+    # commit back the changes
+
+    with open("commit_time.txt", "w") as f:
+        f.write(datetime.now().isoformat())
+
+    result = subprocess.run(
+        ["git", "add", "."], check=True, capture_output=True, text=True
+    )
+
+    if result.returncode != 0:
+        logging.error(result.stderr)
+
+    subprocess.run(
+        ["git", "commit", "--no-verify", "-m", f"Changes from {DEV_EMAIL}"],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    if result.returncode != 0:
+        logging.error(result.stderr)
+
+    return {
+        "message": "Git repository cloned",
+        "source": url,
+        "destination": destination,
+        "status": "success",
+    }
+
+
+# B5
+# Run a SQL query on a SQLite
+def run_sql_query(query: str, source: str, destination: str):
+    if not query:
+        raise ValueError("QUERY is required")
+
+    if not source:
+        raise ValueError("DB file is required")
+
+    db_path = source
+
+    if not os.path.exists(db_path):
+        raise FileNotFoundError("DB not found")
+
+    with sqlite3.connect(db_path) as conn:
+        cursor = conn.cursor()
+        cursor.execute(query)
+        result = cursor.fetchall()
+
+        output_path = destination or file_rename(db_path, "-query-results.csv")
+
+        with open(output_path, "w", newline="") as csvfile:
+            csv_writer = csv.writer(csvfile)
+            csv_writer.writerow(
+                [description[0] for description in cursor.description]
+            )  # write headers
+            csv_writer.writerows(result)
+
+    return {
+        "message": "SQL query executed",
+        "source": db_path,
+        "result": output_path,
+        "status": "success",
+    }
