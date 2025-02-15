@@ -9,6 +9,8 @@ import subprocess
 import sys
 import shutil
 import csv
+import pandas as pd
+import markdown2
 from datetime import datetime
 from io import BytesIO
 from typing import Any, Dict, Optional
@@ -57,6 +59,8 @@ if not AIPROXY_TOKEN:
     raise KeyError("AIPROXY_TOKEN environment variables is missing")
 
 APP_ID = "hari-tds2025-project1"
+
+csv_df = None
 
 
 # POST `/run?task=<task description>`` Executes a plain‑English task.
@@ -181,7 +185,7 @@ task_tools = [
                     "destination": {
                         "type": ["string", "null"],
                         "description": "Path to the destination file. If unavailable, set to null.",
-                        "nullable": True,
+                        # "nullable": True,
                     },
                 },
                 "required": ["weekday", "source"],
@@ -211,7 +215,7 @@ task_tools = [
                     "destination": {
                         "type": ["string", "null"],
                         "description": "Path to the destination file. If unavailable, set to null.",
-                        "nullable": True,
+                        # "nullable": True,
                     },
                 },
                 "required": ["order", "source"],
@@ -239,7 +243,7 @@ task_tools = [
                     "destination": {
                         "type": ["string", "null"],
                         "description": "Path to the destination file. If unavailable, set to null.",
-                        "nullable": True,
+                        # "nullable": True,
                     },
                 },
                 "required": ["count", "source"],
@@ -263,7 +267,7 @@ task_tools = [
                     "destination": {
                         "type": ["string", "null"],
                         "description": "Path to the destination file. If unavailable, set to null.",
-                        "nullable": True,
+                        # "nullable": True,
                     },
                 },
                 "required": ["source"],
@@ -287,7 +291,7 @@ task_tools = [
                     "destination": {
                         "type": ["string", "null"],
                         "description": "Path to the destination file. If unavailable, set to null.",
-                        "nullable": True,
+                        # "nullable": True,
                     },
                 },
                 "required": ["source"],
@@ -311,7 +315,7 @@ task_tools = [
                     "destination": {
                         "type": ["string", "null"],
                         "description": "Path to the destination file. If unavailable, set to null.",
-                        "nullable": True,
+                        # "nullable": True,
                     },
                 },
                 "required": ["source"],
@@ -335,7 +339,7 @@ task_tools = [
                     "destination": {
                         "type": ["string", "null"],
                         "description": "Path to the destination file. If unavailable, set to null.",
-                        "nullable": True,
+                        # "nullable": True,
                     },
                 },
                 "required": ["source"],
@@ -363,7 +367,7 @@ task_tools = [
                     "destination": {
                         "type": ["string", "null"],
                         "description": "Path to the destination file. If unavailable, set to null.",
-                        "nullable": True,
+                        # "nullable": True,
                     },
                 },
                 "required": ["item", "source"],
@@ -387,7 +391,7 @@ task_tools = [
                     "destination": {
                         "type": ["string", "null"],
                         "description": "Path to the destination file. If unavailable, set to null.",
-                        "nullable": True,
+                        # "nullable": True,
                     },
                 },
                 "required": ["url"],
@@ -411,7 +415,7 @@ task_tools = [
                     "destination": {
                         "type": ["string", "null"],
                         "description": "Path to the destination directory. If unavailable, set to null.",
-                        "nullable": True,
+                        # "nullable": True,
                     },
                 },
                 "required": ["url"],
@@ -438,10 +442,121 @@ task_tools = [
                     "destination": {
                         "type": ["string", "null"],
                         "description": "Path to the destination file to save query result. If unavailable, set to null.",
-                        "nullable": True,
+                        # "nullable": True,
                     },
                 },
                 "required": ["query", "source"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "extract_website_data",
+            "description": "Extract data from (i.e. scrape) a website",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "url": {
+                        "type": "string",
+                        "description": "Full URL of the website to extract data from",
+                    },
+                    "destination": {
+                        "type": ["string", "null"],
+                        "description": "Path where to save the extracted data. If unavailable, set to null.",
+                        "nullable": True,
+                    },
+                },
+                "required": ["url", "destination"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "compress_image",
+            "description": "Compress or resize an image",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "quality": {
+                        "type": "integer",
+                        "description": "Quality of the compressed image (1-100)",
+                    },
+                    "source": {
+                        "type": ["string", "null"],
+                        "description": "Path to the source image file. If unavailable, set to null.",
+                    },
+                    "destination": {
+                        "type": ["string", "null"],
+                        "description": "Path to the destination file to save the compressed image. If unavailable, set to null.",
+                    },
+                },
+                "required": ["quality", "source", "destination"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "transcribe_audio",
+            "description": "Transcribe audio from an MP3 file",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "source": {
+                        "type": ["string", "null"],
+                        "description": "Path to the source audio file. if unavailable, set to null.",
+                    },
+                    "destination": {
+                        "type": ["string", "null"],
+                        "description": "Path to the destination file to save the transcribed audio. If unavailable, set to null.",
+                    },
+                },
+                "required": ["source", "destination"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "convert_markdown_to_html",
+            "description": "Convert a Markdown file to HTML",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "source": {
+                        "type": ["string", "null"],
+                        "description": "Path to the source Markdown file. If unavailable, set to null.",
+                    },
+                    "destination": {
+                        "type": ["string", "null"],
+                        "description": "Path to the destination HTML file. If unavailable, set to null.",
+                    },
+                },
+                "required": ["source"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "filter_csv",
+            "description": "Create API endpoints to filter a CSV file",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "csv_path": {
+                        "type": "string",
+                        "description": "Path to the CSV file",
+                    },
+                },
+                "required": ["csv_path"],
                 "additionalProperties": False,
             },
         },
@@ -1033,5 +1148,190 @@ def run_sql_query(query: str, source: str, destination: str):
         "message": "SQL query executed",
         "source": db_path,
         "result": output_path,
+        "status": "success",
+    }
+
+
+# B6
+# Extract data from (i.e. scrape) a website
+def extract_website_data(url: str, destination: str):
+    if not url:
+        raise ValueError("URL is required")
+
+    if not destination:
+        raise ValueError("Destination directory is required")
+
+    if not path_check(destination):
+        raise PermissionError(f"path not in {DATA_DIR}")
+
+    response = httpx.get(url, verify=False)
+    response.raise_for_status()
+
+    with open(destination, "wb") as f:
+        f.write(response.content)
+
+    return {
+        "message": "Website data extracted",
+        "source": url,
+        "destination": destination,
+        "status": "success",
+    }
+
+
+# B7
+# Compress or resize an image
+def compress_image(quality: int, source: str, destination: str):
+    if not source:
+        raise ValueError("Source file is required")
+
+    if not destination:
+        raise ValueError("Destination file is required")
+
+    if not path_check(destination):
+        raise PermissionError(f"path not in {DATA_DIR}")
+
+    quality = max(0, min(quality, 100))
+
+    # check if url is image
+    if source.startswith("http"):
+        response = httpx.get(source, verify=False)
+        response.raise_for_status()
+        image = Image.open(BytesIO(response.content))
+
+    else:
+        if not os.path.exists(source):
+            raise FileNotFoundError("Source file not found")
+
+        image = Image.open(source)
+
+    if image:
+        image.save(destination, quality=quality)
+
+        image.close()
+
+    return {
+        "message": "Image compressed",
+        "source": source,
+        "destination": destination,
+        "status": "success",
+    }
+
+
+# B8
+# Transcribe audio from an MP3 file
+def transcribe_audio(source: str, destination: str):
+    if not source:
+        raise ValueError("Source file is required")
+
+    if not destination:
+        destination = file_rename(source, "-trans.txt")
+
+    if not path_check(destination):
+        raise PermissionError(f"path not in {DATA_DIR}")
+
+    if not os.path.exists(source):
+        raise FileNotFoundError("Source file not found")
+
+    result = subprocess.run(
+        [
+            "ffmpeg",
+            "-i",
+            source,
+            "-f",
+            "s16le",
+            "-acodec",
+            "pcm_s16le",
+            "-ar",
+            "16000",
+            "-ac",
+            "1",
+            "-",
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+
+    if result.returncode != 0:
+        raise HTTPException(status_code=500, detail=result.stderr)
+
+    with open(destination, "wb") as f:
+        f.write(result.stdout)
+
+    return {
+        "message": "Audio transcribed",
+        "source": source,
+        "destination": destination,
+        "status": "success",
+    }
+
+
+# B9
+# Convert Markdown to HTML
+def convert_markdown_to_html(source: str, destination: str):
+    if not source:
+        raise ValueError("Source file is required")
+
+    if not destination:
+        destination = file_rename(source, ".html")
+
+    if not path_check(destination):
+        raise PermissionError(f"path not in {DATA_DIR}")
+
+    if not os.path.exists(source):
+        raise FileNotFoundError("Source file not found")
+
+    with open(source, "r") as f:
+        markdown_text = f.read()
+
+    html_text = markdown2.markdown(markdown_text)
+
+    with open(destination, "w") as f:
+        f.write(html_text)
+
+    return {
+        "message": "Markdown converted to HTML",
+        "source": source,
+        "destination": destination,
+        "status": "success",
+    }
+
+
+# B10
+# Write an API endpoint that filters a CSV file and returns JSON data
+def create_filter_endpoint(column_name):
+    async def filter_data(value: str):
+        if csv_df is not None:
+            value = value.lower()
+            filtered_df = csv_df[csv_df[column_name].fillna("").str.lower() == value]
+            return filtered_df.to_dict(orient="records")
+
+        return {"value": value}
+
+    return filter_data
+
+
+def filter_csv(csv_path: str):
+    if not csv_path:
+        raise ValueError("File path is required")
+
+    if not os.path.exists(csv_path):
+        raise FileNotFoundError("File not found")
+
+    global csv_df
+    csv_df = pd.read_csv(csv_path)
+    csv_df = csv_df.astype(object)
+
+    columns = csv_df.columns.tolist()
+
+    endpoints = []
+
+    for col in columns:
+        app.get(f"/filter/{col}/{{value}}")(create_filter_endpoint(col))
+        endpoints.append(f"GET: /filter/{col}/{{value}}")
+
+    return {
+        "message": "Endpoint created",
+        "source": csv_path,
+        "endpoints": endpoints,
         "status": "success",
     }
