@@ -49,15 +49,16 @@ DATA_DIR: str = "/data"
 DEV_EMAIL: str = "hariharan.chandran@straive.com"
 
 # AI Proxy
-AI_URL: str = "https://api.openai.com/v1"
+# AI_URL: str = "https://api.openai.com/v1"
+AI_URL: str = "https://aiproxy.sanand.workers.dev/openai/v1"
 AIPROXY_TOKEN: str = os.environ.get("AIPROXY_TOKEN")
 AI_MODEL: str = "gpt-4o-mini"
 AI_EMBEDDINGS_MODEL: str = "text-embedding-3-small"
 
 # for debugging use LLM token
-if not AIPROXY_TOKEN:
-    AI_URL = "https://llmfoundry.straive.com/openai/v1"
-    AIPROXY_TOKEN = os.environ.get("LLM_TOKEN")
+# if not AIPROXY_TOKEN:
+#     AI_URL = "https://llmfoundry.straive.com/openai/v1"
+#     AIPROXY_TOKEN = os.environ.get("LLM_TOKEN")
 
 if not AIPROXY_TOKEN:
     raise KeyError("AIPROXY_TOKEN environment variables is missing")
@@ -569,6 +570,33 @@ task_tools = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "run_python_script",
+            "description": "uv run **https://raw.githubusercontent.com/sanand0/tools-in-data-science-public/tds-2025-01/project-1/datagen.py** --root **/data** **hariharan.chandran@straive.com**",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "script_url": {
+                        "type": "string",
+                        "description": "URL of the Python script to run",
+                    },
+                    "root": {
+                        "type": "string",
+                        "description": "Root parameter to pass to the script",
+                    },
+                    "email": {
+                        "type": "string",
+                        "description": "Email address to use",
+                    },
+                },
+                "required": ["script_url", "root", "email"],
+                "additionalProperties": False,
+            },
+            "strict": True,
+        },
+    },
 ]
 
 
@@ -576,7 +604,7 @@ def get_task_tool(task: str, tools: list[Dict[str, Any]]) -> Dict[str, Any]:
     response = httpx.post(
         f"{AI_URL}/chat/completions",
         headers={
-            "Authorization": f"Bearer {AIPROXY_TOKEN}:{APP_ID}",
+            "Authorization": f"Bearer {AIPROXY_TOKEN}",
             "Content-Type": "application/json",
         },
         json={
@@ -585,7 +613,7 @@ def get_task_tool(task: str, tools: list[Dict[str, Any]]) -> Dict[str, Any]:
             "tools": tools,
             "tool_choice": "auto",
         },
-        verify=ssl_verify
+        verify=ssl_verify,
     )
 
     # response.raise_for_status()
@@ -602,14 +630,14 @@ def get_chat_completions(messages: list[Dict[str, Any]]):
     response = httpx.post(
         f"{AI_URL}/chat/completions",
         headers={
-            "Authorization": f"Bearer {AIPROXY_TOKEN}:{APP_ID}",
+            "Authorization": f"Bearer {AIPROXY_TOKEN}",
             "Content-Type": "application/json",
         },
         json={
             "model": AI_MODEL,
             "messages": messages,
         },
-        verify=ssl_verify
+        verify=ssl_verify,
     )
 
     # response.raise_for_status()
@@ -626,14 +654,14 @@ def get_embeddings(text: str):
     response = httpx.post(
         f"{AI_URL}/embeddings",
         headers={
-            "Authorization": f"Bearer {AIPROXY_TOKEN}:{APP_ID}",
+            "Authorization": f"Bearer {AIPROXY_TOKEN}",
             "Content-Type": "application/json",
         },
         json={
             "model": AI_EMBEDDINGS_MODEL,
             "input": text,
         },
-        verify=ssl_verify
+        verify=ssl_verify,
     )
 
     # response.raise_for_status()
@@ -701,7 +729,44 @@ def initialize_data():
     except Exception as e:
         logging.error(f"Error in initializing data: {e}")
 
+
 # A1.
+# run python script using UV
+def run_python_script(script_url: str, root: str, email: str):
+    DATA_DIR = root or DATA_DIR
+
+    try:
+        import uv
+
+    except ImportError:
+        logging.info("'uv' package not found. Installing...")
+
+        subprocess.check_call([sys.executable, "-m", "ensurepip", "--upgrade"])
+
+        subprocess.check_call(
+            [sys.executable, "-m", "pip", "install", "--upgrade", "uv"]
+        )
+
+        import uv
+
+    result = subprocess.run(
+        [
+            "uv",
+            "run",
+            script_url,
+            f"--root={DATA_DIR}",
+            email,
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    if result.returncode != 0:
+        raise RuntimeError(f"Script failed: {result.stderr}")
+
+    return {"status": "success", "message": "Script executed"}
+
 
 # A2. Format a file using prettier
 def format_file(source: str = None):
